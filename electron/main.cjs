@@ -4,12 +4,14 @@ const { app, BrowserWindow, screen, ipcMain, session, powerSaveBlocker, Menu, sh
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
+const { NdiOutputs } = require('./ndi-out.cjs');
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 let server;
+let ndiOut;
 let control;
 const outputs = new Map(); // outputId -> BrowserWindow
 const prefsFile = () => path.join(app.getPath('userData'), 'desktop.json');
@@ -38,7 +40,8 @@ function openOutput(outputId, displayId) {
     frame: !display,
     autoHideMenuBar: true,
     ...(display ? { x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height } : { width: 960, height: 540 }),
-    webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, 'preload.cjs') },
+    // sandbox désactivé : le preload charge le module natif NDI.
+    webPreferences: { backgroundThrottling: false, sandbox: false, preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadURL(`${server.url}/output/?id=${encodeURIComponent(outputId)}`);
   win.once('ready-to-show', () => {
@@ -51,6 +54,7 @@ function openOutput(outputId, displayId) {
     }
   });
   win.on('closed', () => { if (outputs.get(outputId) === win) outputs.delete(outputId); });
+  win.webContents.once('did-finish-load', () => ndiOut?.sync().catch(() => {}));
   outputs.set(outputId, win);
   prefs.outputs[outputId] = { displayId: display ? display.id : null, open: true };
   savePrefs();
@@ -142,10 +146,17 @@ app.whenReady().then(async () => {
   });
   screen.on('display-metrics-changed', notify);
 
+  // Sorties publiées en NDI : suivies à chaque changement d'état (et à l'ouverture des fenêtres).
+  ndiOut = new NdiOutputs({ server, getScreenWindow: (id) => outputs.get(id) });
+  let ndiSyncT = null;
+  const syncNdi = () => { clearTimeout(ndiSyncT); ndiSyncT = setTimeout(() => ndiOut.sync().catch(() => {}), 100); };
+  server.store.onChange((st, kind) => { if (kind !== 'ndi' && kind !== 'votes') syncNdi(); });
+  syncNdi();
+
   buildMenu();
   control = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1000, minHeight: 640, title: 'Presentor Manager', backgroundColor: '#0b0e14',
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false, sandbox: false },
   });
   control.loadURL(server.url + '/control/');
   control.on('closed', () => { control = null; app.quit(); });
@@ -165,4 +176,4 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => server?.store.save());
+app.on('before-quit', () => { ndiOut?.stopAll(); server?.store.save(); });

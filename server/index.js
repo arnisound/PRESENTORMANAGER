@@ -12,6 +12,7 @@ import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
 import { processMedia, kindOf, findSoffice } from './media.js';
+import { startNdiDiscovery } from './ndi.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require_ = (p) => path.join(ROOT, 'node_modules', p);
@@ -26,6 +27,7 @@ export function lanAddresses() {
 
 export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = path.join(ROOT, 'data'), pin = process.env.PRESENTOR_PIN || '' } = {}) {
   const store = new Store(dataDir);
+  const stopNdi = startNdiDiscovery(store);
   const mediaDir = path.join(dataDir, 'media');
   const app = express();
   const server = http.createServer(app);
@@ -186,6 +188,6 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
     port: actualPort,
     url: `http://localhost:${actualPort}`,
     store,
-    close: () => new Promise((r) => { store.save(); wss.close(); server.close(r); }),
+    close: () => new Promise((r) => { stopNdi(); store.save(); wss.close(); server.close(r); }),
   };
 }

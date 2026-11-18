@@ -254,6 +254,9 @@ function tabOutputs() {
       ${field('Nom', `<input data-out-field="name" value="${esc(o.name)}">`)}
       ${field('Contenu', `<select data-out-field="source">${sel(sources, o.source)}</select>`)}
       ${check('Sortie audio (son des vidéos)', 'data-out-field="audio" data-type="bool"', o.audio)}
+      ${desktop?.ndi ? `<div class="row wrap">${check('Publier en NDI', 'data-out-field="ndi" data-type="bool"', o.ndi)}
+        <input data-out-field="ndiName" value="${esc(o.ndiName || '')}" placeholder="Presentor - ${esc(o.name)}" style="flex:1">
+        ${o.ndi ? `<span class="hint">${S.ndiOut?.[o.id] ? esc(S.ndiOut[o.id]) : 'démarrage…'}</span>` : ''}</div>` : ''}
       <div class="row wrap"><button class="btn sm" data-act="out-mapping" data-id="${o.id}">Mapping…</button>
         ${o.zones?.length ? `<span class="tag ${o.mapping ? 'pvw' : 'flag'}">${o.zones.length} zone${o.zones.length > 1 ? 's' : ''}${o.mapping ? '' : ' (désactivé)'}</span>` : ''}
         ${check('Mire', 'data-out-field="testPattern" data-type="bool"', o.testPattern)}
@@ -331,6 +334,8 @@ function tabSettings() {
   const images = S.media.filter((m) => m.kind === 'image');
   return `${field('Logo / habillage (affiché quand le programme est vide ou en mode LOGO)', `<select data-set-field="logoMediaId">${sel([['', 'Aucun (noir)'], ...images.map((m) => [m.id, m.name])], s.logoMediaId)}</select>`)}
     ${field('Couleur d\'accent (sondages, bandeaux)', `<input type="color" data-set-field="accent" value="${esc(s.accent)}">`)}
+    ${field('NDI : adresses IP à interroger directement (si les sources n\'apparaissent pas)', `<input data-set-field="ndiExtraIps" value="${esc(s.ndiExtraIps || '')}" placeholder="192.168.1.20, 192.168.1.21">`)}
+    <span class="hint">NDI : ${S.ndi?.available ? `${S.ndi.sources.length} source(s) visible(s)` : 'module non disponible sur ce serveur'}.</span>
     ${field('URL publique (si le serveur est en ligne, pour le QR code de vote)', `<input type="url" data-set-field="publicUrl" value="${esc(s.publicUrl)}" placeholder="https://evenement.mondomaine.fr">`)}
     <div class="box"><div class="row"><img class="qr" data-qr="remote" alt=""><div><b>Télécommande smartphone</b><div class="link"></div>
       <p class="hint">Scannez avec le téléphone du présentateur ou du régisseur (même réseau).</p></div></div></div>
