@@ -2,6 +2,9 @@
 // invisible, et n'est affiché (fondu ou cut) qu'une fois entièrement prêt.
 // L'ancien calque reste à l'écran jusque-là : jamais d'écran noir intempestif.
 import { esc } from './client.js';
+import { guestStream, syncGuests } from './rtc.js';
+
+const normUrl = (u) => { const v = String(u || '').trim(); return !v || /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : 'https://' + v; };
 
 // ---------------------------------------------------------------- PDF
 let pdfjs;
@@ -71,16 +74,18 @@ async function cameraStream(cue) {
 
 // ---------------------------------------------------------------- capture de fenêtre (app desktop)
 const captures = new Map();
-function captureStream(sourceId) {
-  if (!captures.has(sourceId)) {
+function captureStream(sourceId, withAudio = false) {
+  const key = sourceId + (withAudio ? '+a' : '');
+  if (!captures.has(key)) {
     const p = navigator.mediaDevices.getUserMedia({
-      audio: false,
+      // Son de l'ordinateur (Windows) : capture en boucle de la sortie audio.
+      audio: withAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
       video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxWidth: 3840, maxHeight: 2160, maxFrameRate: 60 } },
     });
-    captures.set(sourceId, p);
-    p.catch(() => captures.delete(sourceId));
+    captures.set(key, p);
+    p.catch(() => captures.delete(key));
   }
-  return captures.get(sourceId);
+  return captures.get(key);
 }
 
 // ---------------------------------------------------------------- lien de participation
@@ -127,7 +132,14 @@ export function describe(state, pos, { blackout = false, logo = false, depth = 0
       if (!media) return { ...base, key: 'wait:' + cue.id, type: 'placeholder', label: 'Média manquant' };
       return { ...base, key: `${cue.id}:${media.file}`, src: '/media/' + media.file };
     case 'web':
-      return { ...base, key: `${cue.id}:${cue.url}` };
+      return { ...base, key: `${cue.id}:${normUrl(cue.url)}` };
+    case 'window':
+      return { ...base, key: `${cue.id}:${cue.sourceName}:${cue.sourceId}:${cue.withAudio}` };
+    case 'guest': {
+      const g = state.guests?.find((x) => x.id === cue.guestId);
+      if (!g) return { ...base, key: 'noguest:' + cue.id, type: 'placeholder', label: `${cue.name || 'Invité'} : en attente de connexion…` };
+      return { ...base, key: `${cue.id}:${g.cid}` };
+    }
     case 'camera':
       return { ...base, key: `${cue.id}:${cue.deviceId}:${cue.deviceLabel}:${cue.withAudio}` };
     case 'ndi':
@@ -186,7 +198,7 @@ export class Stage {
 
   size() {
     const r = this.root.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.state?.settings?.renderScale || 2);
     return { w: Math.max(64, Math.round(r.width * dpr)), h: Math.max(36, Math.round(r.height * dpr)) };
   }
 
@@ -195,6 +207,7 @@ export class Stage {
 
   update(state, desc, overlay = null, overlayScenes = null) {
     this.state = state;
+    if (state?.guests) syncGuests(state);
     this.lastDesc = desc;
     this.renderOverlay(overlay);
     this.renderOverlayScenes(state, overlayScenes || []);
@@ -256,7 +269,8 @@ export class Stage {
   }
 
   renderOverlay(o) {
-    const html = o ? `<div class="lower-third"><div class="lt-text">${esc(o.text)}</div>${o.sub ? `<div class="lt-sub">${esc(o.sub)}</div>` : ''}</div>` : '';
+    const st = this.state?.settings || {};
+    const html = o ? `<div class="lower-third lt-${esc(st.lowerThirdPosition || 'left')} lt-${esc(st.lowerThirdStyle || 'dark')}"><div class="lt-text">${esc(o.text)}</div>${o.sub ? `<div class="lt-sub">${esc(o.sub)}</div>` : ''}</div>` : '';
     if (this.overlayEl.dataset.html !== html) { this.overlayEl.dataset.html = html; this.overlayEl.innerHTML = html; }
   }
 }
@@ -324,7 +338,8 @@ class Layer {
         });
         await Promise.race([Promise.all(this.slideMedia.map((m) => new Promise((r) => (m.readyState >= 2 ? r() : m.addEventListener('loadeddata', r, { once: true }))))), new Promise((r) => setTimeout(r, 2500))]);
         // Préchargement des diapositives voisines.
-        if (!monitor) for (const n of [d.slide + 1, d.slide + 2, d.slide - 1]) if (n >= 1 && n <= d.pages) pageCanvas(d.src, n, w, h).catch(() => {});
+        const ahead = this.stage.state?.settings?.preloadSlides ?? 2;
+        if (!monitor) for (const n of [...Array.from({ length: ahead }, (_, i) => d.slide + i + 1), d.slide - 1]) if (n >= 1 && n <= d.pages) pageCanvas(d.src, n, w, h).catch(() => {});
         return;
       }
       case 'video':
@@ -356,14 +371,32 @@ class Layer {
           el.innerHTML = `<div class="placeholder"><b>Page web / visio</b><small>${esc(d.cue.url || 'aucune URL')}</small></div>`;
           return;
         }
-        if (!d.cue.url) { el.innerHTML = '<div class="placeholder">Aucune URL</div>'; return; }
+        const url = normUrl(d.cue.url);
+        if (!url) { el.innerHTML = '<div class="placeholder">Aucune adresse : saisissez-la dans les réglages du clip</div>'; return; }
+        const zoom = d.cue.zoom || 1;
+        if (window.presenthor?.isDesktop) {
+          // App Mac / PC : vrai navigateur intégré (pas de blocage d'intégration,
+          // connexions mémorisées d'un événement à l'autre, son contrôlable).
+          const wv = (this.webview = document.createElement('webview'));
+          wv.setAttribute('partition', 'persist:presenthor-web');
+          wv.setAttribute('allowpopups', '');
+          wv.setAttribute('src', url);
+          wv.className = 'web-view';
+          el.append(wv);
+          await new Promise((r) => { wv.addEventListener('dom-ready', r, { once: true }); setTimeout(r, 8000); });
+          try {
+            wv.setZoomFactor(zoom);
+            wv.setAudioMuted(!this.stage.opts.audio);
+          } catch {}
+          return;
+        }
         const f = document.createElement('iframe');
-        f.src = d.cue.url;
+        f.src = url;
         f.allow = 'camera; microphone; fullscreen; autoplay; display-capture; clipboard-write';
         f.referrerPolicy = 'no-referrer';
-        if (d.cue.zoom && d.cue.zoom !== 1) Object.assign(f.style, { width: 100 / d.cue.zoom + '%', height: 100 / d.cue.zoom + '%', transform: `scale(${d.cue.zoom})`, transformOrigin: '0 0' });
+        if (zoom !== 1) Object.assign(f.style, { width: 100 / zoom + '%', height: 100 / zoom + '%', transform: `scale(${zoom})`, transformOrigin: '0 0' });
         el.append(f);
-        await new Promise((r) => f.addEventListener('load', r, { once: true }));
+        await new Promise((r) => { f.addEventListener('load', r, { once: true }); setTimeout(r, 8000); });
         return;
       }
       case 'camera': {
@@ -392,6 +425,33 @@ class Layer {
         // On attend que tous les calques soient prêts (avec un plafond) avant d'afficher la scène.
         await Promise.race([Promise.all([...this.children.values()].map((c) => c.stage.whenReady())), new Promise((r) => setTimeout(r, 3500))]);
         return;
+      case 'window': {
+        // Fenêtre ou écran de l'ordinateur (app Mac / PC).
+        const api = window.presenthor;
+        if (!api?.captureSources) { el.innerHTML = `<div class="placeholder"><b>${esc(d.cue.sourceName || 'Fenêtre')}</b><small>Capture disponible dans l'app Mac / PC</small></div>`; return; }
+        const list = await api.captureSources();
+        const src = list.find((x) => x.id === d.cue.sourceId) || list.find((x) => x.name === d.cue.sourceName) || list.find((x) => d.cue.sourceName && x.name.includes(d.cue.sourceName));
+        if (!src) { el.innerHTML = `<div class="placeholder"><b>${esc(d.cue.sourceName || 'Aucune fenêtre choisie')}</b><small>Fenêtre introuvable (logiciel fermé ?)</small></div>`; return; }
+        const v = document.createElement('video');
+        v.autoplay = true; v.playsInline = true; v.className = 'fit';
+        v.muted = !!monitor || !this.stage.opts.audio || !d.cue.withAudio;
+        el.append(v);
+        v.srcObject = await captureStream(src.id, !!d.cue.withAudio && !monitor && api.platform === 'win32');
+        await v.play().catch(() => {});
+        return;
+      }
+      case 'guest': {
+        // Invité à distance (visio intégrée) : image + son en direct.
+        if (!this.stage.opts.client?.rtcHandlers) { el.innerHTML = `<div class="placeholder">${esc(d.cue.name || 'Invité')}</div>`; return; }
+        const v = document.createElement('video');
+        v.autoplay = true; v.playsInline = true; v.className = 'fit' + (d.cue.fill ? ' cover' : '');
+        v.muted = !!monitor || !this.stage.opts.audio;
+        v.volume = this.volume(d.cue);
+        el.append(v);
+        v.srcObject = await guestStream(this.stage.opts.client, () => this.stage.state, d.cue.guestId);
+        await v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+        return;
+      }
       case 'capture': {
         const v = document.createElement('video');
         v.autoplay = true; v.muted = true; v.playsInline = true;
@@ -496,6 +556,7 @@ class Layer {
     this.desc = desc;
     if (['title', 'poll', 'qa', 'qr'].includes(desc.type)) this.renderCard(desc, state);
     if (desc.type === 'color') this.el.style.background = desc.cue.color || '#000';
+    if (this.webview) { try { this.webview.setZoomFactor(desc.cue.zoom || 1); this.webview.setAudioMuted(!this.stage.opts.audio); } catch {} }
     if (this.stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
@@ -600,6 +661,7 @@ class Layer {
   destroy() {
     clearInterval(this.syncTimer);
     clearInterval(this.slideTimer);
+    this.webview?.remove();
     for (const m of this.slideMedia || []) { m.pause(); m.removeAttribute('src'); m.load(); }
     for (const ch of this.children?.values() || []) ch.stage.destroy();
     if (this.ndiHandle) window.presenthor?.ndi?.detach(this.ndiHandle);

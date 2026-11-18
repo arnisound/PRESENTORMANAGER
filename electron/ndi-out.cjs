@@ -7,7 +7,7 @@ const path = require('node:path');
 let grandiose = null;
 try { grandiose = require('@stagetimerio/grandiose'); } catch { /* NDI non installé */ }
 
-const FPS = 30;
+const fpsOf = (st) => Math.max(10, Math.min(60, +st?.settings?.ndiFps || 30));
 
 class NdiOutputs {
   constructor({ server, getScreenWindow }) {
@@ -47,7 +47,8 @@ class NdiOutputs {
     }
     this.attachSource(a, o);
     // Envoi à cadence fixe (dernière image connue) : les récepteurs NDI préfèrent un flux régulier.
-    a.timer = setInterval(() => this.push(a), 1000 / FPS);
+    a.fps = fpsOf(this.server.store.state);
+    a.timer = setInterval(() => this.push(a), 1000 / a.fps);
     a.status = setInterval(() => {
       const size = a.frame ? `${a.frame.w}×${a.frame.h}` : 'en attente d\'image';
       this.report(o.id, `${a.sender.sourcename?.() || a.name} · ${size} · ${a.sender.connections?.() ?? 0} récepteur(s)`);
@@ -67,13 +68,14 @@ class NdiOutputs {
       a.unsubscribe = () => { if (!want.isDestroyed()) want.webContents.endFrameSubscription(); };
       want.once('closed', () => { a.win = null; setTimeout(() => this.sync(), 50); });
     } else {
-      const res = o.ndiResolution || { w: 1920, h: 1080 };
+      const st = this.server.store.state.settings;
+      const res = o.ndiResolution || { w: +st.ndiWidth || 1920, h: +st.ndiHeight || 1080 };
       const win = new BrowserWindow({
         show: false, width: res.w, height: res.h, useContentSize: true, frame: false, enableLargerThanScreen: true,
-        webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: false, preload: path.join(__dirname, 'preload.cjs') },
+        webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.cjs') },
       });
       win.setContentSize(res.w, res.h);
-      win.webContents.setFrameRate(FPS);
+      win.webContents.setFrameRate(fpsOf(this.server.store.state));
       win.webContents.on('paint', (e, dirty, image) => this.onImage(a, image));
       win.loadURL(`${this.server.url}/output/?id=${encodeURIComponent(o.id)}`);
       a.offscreen = win;
@@ -100,7 +102,7 @@ class NdiOutputs {
     const f = a.frame;
     try {
       await a.sender.video({
-        xres: f.w, yres: f.h, frameRateN: FPS * 1000, frameRateD: 1000,
+        xres: f.w, yres: f.h, frameRateN: a.fps * 1000, frameRateD: 1000,
         fourCC: grandiose.FOURCC_BGRA, pictureAspectRatio: f.w / f.h,
         frameFormatType: grandiose.FORMAT_TYPE_PROGRESSIVE, lineStrideBytes: f.w * 4, data: f.data,
       });

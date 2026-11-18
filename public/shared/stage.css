@@ -85,3 +85,13 @@ blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; 
 .qr-box { background: #fff; padding: 1.5cqh; border-radius: 1.5cqh; height: 62cqh; aspect-ratio: 1; }
 .qr-box img { width: 100%; height: 100%; display: block; }
 .qr-caption { font-size: 3.4cqw !important; font-weight: 700; }
+
+/* Page web (navigateur intégré de l'app) */
+.web-view { width: 100%; height: 100%; border: 0; background: #fff; display: flex; }
+/* Bandeau : position et style réglables dans les préférences */
+.lower-third.lt-center { left: 50%; transform: translateX(-50%); text-align: center; border-left: 0; border-bottom: .6cqw solid var(--accent, #c48626); }
+.lower-third.lt-right { left: auto; right: 5cqw; border-left: 0; border-right: .6cqw solid var(--accent, #c48626); text-align: right; }
+.lower-third.lt-accent { background: var(--accent, #c48626); color: #111; }
+.lower-third.lt-light { background: rgba(255,255,255,.92); color: #111; }
+.lower-third.lt-center { animation-name: lt-fade; }
+@keyframes lt-fade { from { opacity: 0; } }

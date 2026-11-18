@@ -8,8 +8,15 @@ import { defaultComp, defaultLiveComp, normalizeComp, compDispatch, compStep } f
 
 export const uid = (p = '') => p + crypto.randomBytes(5).toString('hex');
 
-const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'ndi', 'scene', 'poll', 'qa', 'title', 'black', 'color', 'qr'];
-const SOURCES = ['program', 'preview', 'presenter', 'multiview', 'clean'];
+const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'ndi', 'scene', 'poll', 'qa', 'title', 'black', 'color', 'qr', 'window', 'guest'];
+
+// Une adresse tapée sans protocole ("www.site.fr") serait lue comme un chemin local.
+export function normalizeUrl(u) {
+  const v = String(u || '').trim();
+  if (!v || /^[a-z][a-z0-9+.-]*:/i.test(v)) return v;
+  return 'https://' + v.replace(/^\/+/, '');
+}
+const SOURCES = ['program', 'preview', 'presenter', 'multiview', 'clean', 'aux'];
 
 function defaultState() {
   return {
@@ -21,6 +28,47 @@ function defaultState() {
       logoMediaId: null, // affiché quand le programme est vide / en "logo"
       publicUrl: '', // URL publique pour le vote (mode en ligne)
       accent: '#c48626',
+      // Lecture
+      defaultLayerTransitionMs: 0,
+      defaultLoopMode: 'loop',
+      defaultAutoplay: true,
+      masterVolume: 1,
+      // Grille / régie
+      cellSize: 132,
+      confirmDelete: true,
+      // Télécommande / clavier
+      clickerDebounceMs: 120,
+      blackoutKey: true,
+      spaceNext: false,
+      // Sorties
+      hideCursor: true,
+      showOfflineBanner: true,
+      outputBackground: '#000000',
+      keepAwake: true,
+      renderScale: 2,
+      preloadSlides: 2,
+      // Bandeau (lower-third)
+      lowerThirdPosition: 'left',
+      lowerThirdStyle: 'dark',
+      // Public / présentateur
+      voteChange: true,
+      voteResultsDefault: true,
+      timerWarnSec: 120,
+      // NDI
+      ndiExtraIps: '',
+      ndiFps: 30,
+      ndiWidth: 1920,
+      ndiHeight: 1080,
+      // Visio intégrée (invités à distance)
+      stunServers: 'stun:stun.l.google.com:19302',
+      turnUrl: '',
+      turnUser: '',
+      turnPass: '',
+      guestToken: uid(),
+      guestMaxKbps: 2500,
+      guestHeight: 720,
+      // Commandes à distance (API HTTP)
+      apiToken: uid('api_'),
     },
     media: [],
     cues: [],
@@ -67,6 +115,7 @@ export class Store {
         ...saved,
         settings: { ...def.settings, ...saved.settings },
         live: { ...def.live, ...saved.live, blackout: false, comp: { ...defaultLiveComp(), ...saved.live?.comp } },
+        guests: [],
         timer: { ...def.timer, ...saved.timer },
       };
     } catch { /* premier lancement */ }
@@ -77,6 +126,22 @@ export class Store {
   }
 
   onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+
+  importShow(data) {
+    if (!data || !Array.isArray(data.cues) || !data.settings) return { error: 'fichier de show invalide' };
+    const def = defaultState();
+    const keep = { guestToken: this.state.settings.guestToken, apiToken: this.state.settings.apiToken };
+    this.state = {
+      ...def, ...data,
+      settings: { ...def.settings, ...data.settings, ...keep },
+      live: { ...def.live, comp: defaultLiveComp() },
+      timer: { ...def.timer, ...data.timer, running: false },
+      guests: this.state.guests || [], ndi: this.state.ndi, nativeInfo: this.state.nativeInfo,
+    };
+    this.state.comp = normalizeComp(this.state.comp, this.state.cues);
+    this.emit();
+    return { ok: true };
+  }
 
   emit(kind = 'full') {
     for (const fn of this.listeners) fn(this.state, kind);
@@ -172,6 +237,11 @@ export class Store {
       case 'cue.add': {
         if (!CUE_TYPES.includes(a.cue?.type)) return { error: 'type inconnu' };
         const cue = { id: uid('cue_'), name: '', notes: '', ...a.cue };
+        if ((cue.type === 'video' || cue.type === 'audio') && !cue.loopMode) {
+          cue.loopMode = s.settings.defaultLoopMode || 'loop';
+          if (s.settings.defaultAutoplay === false && cue.autoplay == null) cue.autoplay = false;
+        }
+        if (cue.type === 'web' && cue.url) cue.url = normalizeUrl(cue.url);
         if (cue.type === 'scene') { cue.layers = sanitizeLayers(cue.layers, s.cues, cue.id); cue.background ||= '#000000'; }
         if (!cue.name) cue.name = defaultName(cue, this.mediaOf(cue));
         const at = a.index ?? s.cues.length;
@@ -185,6 +255,7 @@ export class Store {
         if (!cue) return { error: 'cue introuvable' };
         const { id, type, ...patch } = a.patch || {};
         if (patch.layers) patch.layers = sanitizeLayers(patch.layers, s.cues, cue.id);
+        if (typeof patch.url === 'string') patch.url = normalizeUrl(patch.url);
         Object.assign(cue, patch);
         break;
       }
@@ -231,7 +302,7 @@ export class Store {
       case 'prev': {
         // Anti-rebond : certaines télécommandes envoient 2 événements par appui.
         const now = Date.now();
-        if (this._lastNav && now - this._lastNav < 120) return { ok: true };
+        if (this._lastNav && now - this._lastNav < (s.settings.clickerDebounceMs ?? 120)) return { ok: true };
         this._lastNav = now;
         if (s.live.blackout) { s.live.blackout = false; break; }
         // Composition : diapo de la présentation active, sinon colonne suivante.
@@ -358,8 +429,15 @@ export class Store {
         break;
 
       // réglages
-      case 'settings.update':
-        Object.assign(s.settings, a.patch || {});
+      case 'settings.update': {
+        const { guestToken, apiToken, ...p } = a.patch || {};
+        Object.assign(s.settings, p);
+        break;
+      }
+      case 'settings.regenerate':
+        // Nouveau lien invité / nouveau jeton d'API (révoque les anciens).
+        if (a.key === 'guestToken') s.settings.guestToken = uid();
+        if (a.key === 'apiToken') s.settings.apiToken = uid('api_');
         break;
       case 'show.rename':
         s.show.name = String(a.name || '').slice(0, 120) || s.show.name;
@@ -397,7 +475,7 @@ export class Store {
           question: a.poll?.question || 'Nouvelle question',
           kind: a.poll?.kind || 'choice', // choice | multi | rating | words
           options: a.poll?.options?.length ? a.poll.options : ['Oui', 'Non'],
-          showResults: true,
+          showResults: s.settings.voteResultsDefault !== false,
           votes: {}, // voterId -> réponse
         };
         s.polls.push(poll);
@@ -426,6 +504,7 @@ export class Store {
       case 'vote': {
         const p = s.polls.find((x) => x.id === a.pollId);
         if (!p || s.activePollId !== p.id || !a.voterId) return { error: 'vote fermé' };
+        if (s.settings.voteChange === false && p.votes[String(a.voterId).slice(0, 40)] != null) return { error: 'vous avez déjà voté' };
         p.votes[String(a.voterId).slice(0, 40)] = sanitizeVote(p, a.answer);
         this.emit('votes');
         return { ok: true };
@@ -532,7 +611,7 @@ function clampSlide(store, cueId, slide) {
 function defaultName(cue, media) {
   if (media) return media.name.replace(/\.[^.]+$/, '');
   return { web: 'Page web / visio', camera: 'Caméra / capture', poll: 'Sondage', qa: 'Questions du public',
-    title: 'Titre', black: 'Noir', color: 'Couleur', qr: 'QR code', scene: 'Scène', ndi: 'Source NDI', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
+    title: 'Titre', black: 'Noir', color: 'Couleur', qr: 'QR code', window: 'Fenêtre', guest: 'Invité', scene: 'Scène', ndi: 'Source NDI', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
 }
 
 function sanitizeVote(poll, answer) {

@@ -6,7 +6,9 @@ import { Stage, describe, effectsCss, transformCss, MASK_CSS } from './renderer.
 export class CompositionView {
   /**
    * opts : client, audio, monitor, reportEnded,
-   *        only (id d'un calque à isoler), overlays (bandeau + habillages)
+   *        only (id d'un calque à isoler), overlays (bandeau + habillages),
+   *        outputId (sortie affichée : reçoit aussi les calques routés vers elle),
+   *        aux (n'affiche QUE les calques routés vers cette sortie)
    */
   constructor(root, opts = {}) {
     this.root = root;
@@ -33,7 +35,11 @@ export class CompositionView {
     if (!comp) return;
     const live = state.live.comp || { active: {} };
     const solo = comp.layers.some((l) => l.solo);
-    const list = this.opts.only ? comp.layers.filter((l) => l.id === this.opts.only) : comp.layers;
+    // Routage : un calque va dans la composition principale et/ou sur des sorties précises (AUX).
+    const routed = (l) => (l.auxOutputs || []).includes(this.opts.outputId);
+    const list = this.opts.only ? comp.layers.filter((l) => l.id === this.opts.only)
+      : this.opts.aux ? comp.layers.filter(routed)
+      : comp.layers.filter((l) => l.mainOut !== false || routed(l));
     for (const [id, l] of this.layers) if (!list.some((x) => x.id === id)) { l.stage.destroy(); l.el.remove(); this.layers.delete(id); }
     list.forEach((layer, i) => {
       let L = this.layers.get(layer.id);
@@ -52,7 +58,7 @@ export class CompositionView {
             clipStyle: true,
             compLayer: id,
             transitionMs: () => cur().transitionMs || 0,
-            volumeFor: () => cur().volume ?? 1,
+            volumeFor: () => (cur().volume ?? 1) * (this.state.settings?.masterVolume ?? 1),
             playbackFor: () => lc().pb?.[id] || null,
             slideAtFor: (cueId) => lc().slideAt?.[cueId],
           }),
@@ -74,7 +80,11 @@ export class CompositionView {
       L.stage.update(state, desc);
     });
     // L'ordre DOM suit l'ordre des calques (le mode de fusion dépend de ce qui est dessous).
-    list.forEach((layer) => this.layersEl.append(this.layers.get(layer.id).el));
+    // Ne déplace les éléments que si l'ordre a changé : déplacer une page web ou une
+    // visio intégrée dans le document la recharge.
+    const want = list.map((l) => this.layers.get(l.id).el);
+    const have = [...this.layersEl.children];
+    if (want.some((el, i) => have[i] !== el)) want.forEach((el, i) => { if (this.layersEl.children[i] !== el) this.layersEl.insertBefore(el, this.layersEl.children[i] || null); });
     if (this.overlay) this.overlay.update(state, { key: 'none', type: 'black' }, state.live.overlay, state.live.blackout ? null : state.live.overlayScenes);
     this.black.classList.toggle('on', !!state.live.blackout && !this.opts.only);
   }

@@ -33,9 +33,20 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
 - **PowerPoint** :
   - **images + vidéos intégrées** (fonctionne partout). Conversion via LibreOffice, ou à défaut PowerPoint (Windows / Mac) ou Keynote (Mac) ;
   - **PowerPoint natif** (app Mac / PC avec PowerPoint) : animations et transitions conservées.
+- **Routage AUX** : chaque calque va dans la composition principale et/ou sur des écrans précis. Exemples : un logo seulement sur les écrans latéraux, un retour particulier pour la régie. Un clip peut aussi être envoyé seul sur une sortie (clic droit).
+- **Pages web** (app Mac / PC) : vrai navigateur intégré. Pas de blocage d'intégration, et les connexions sont mémorisées. Une adresse sans `https://` est corrigée automatiquement.
+- **Capture de fenêtre ou d'écran** (app Mac / PC) : n'importe quel logiciel de l'ordinateur devient une source (sélecteur avec aperçus). Le son de l'ordinateur est capturé sous Windows.
+- **Visio intégrée (invités à distance)** :
+  - un intervenant ouvre un lien dans son navigateur (caméra, micro, partage d'écran), sans rien installer ;
+  - la régie voit son aperçu et le place dans la grille comme n'importe quelle source, image et son compris ;
+  - elle lui renvoie le son de la salle (console, micro) et une image de retour (sortie, caméra) ;
+  - sans image de retour, l'invité voit la diffusion recomposée chez lui.
+
+  Les connexions sont directes (WebRTC). Serveurs STUN et TURN réglables.
 - **Sorties** : chaque sortie affiche au choix :
   - la composition ;
   - la composition sans bandeau ;
+  - la sortie AUX (uniquement les calques qui lui sont envoyés) ;
   - un calque seul ;
   - le retour présentateur (écran, diapo suivante, notes, chrono, messages) ;
   - le multiview (sortie + un moniteur par calque) ;
@@ -45,6 +56,16 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
 - **Plein écran des sorties** (app Mac / PC) : **Échap** ou double-clic dans la sortie pour revenir en fenêtre, **Ctrl+Alt+F** (⌘+Alt+F) depuis n'importe où, ou bouton dans l'onglet *Sorties*.
 - **Public** : sondages en direct (QR code, résultats animés), nuage de mots, questions modérées.
 - **Direct** : message au présentateur, bandeau nom / fonction, chronomètre, écran noir.
+- **Préférences** (bouton ⚙), par thèmes :
+  - lecture ;
+  - régie et télécommande (anti-rebond, touches) ;
+  - sorties et rendu (curseur, fond, anti-veille, qualité, préchargement) ;
+  - bandeau ;
+  - public ;
+  - visio (lien invité, débit, STUN / TURN) ;
+  - NDI (images par seconde, résolution) ;
+  - commandes à distance ;
+  - sauvegarde et restauration du show.
 - **Télécommande smartphone** (`/remote/`) : suivant / précédent, notes, chrono.
 
 ## Démarrer
@@ -108,6 +129,30 @@ Placez un reverse-proxy HTTPS devant (WebSocket sur `/ws`). Renseignez l'URL pub
 | NDI | App Mac/PC. Le module NDI est compilé à l'installation (`npm install`) : Xcode Command Line Tools sur Mac, « Build Tools for Visual Studio » sur Windows |
 
 Sans PowerPoint ou hors de l'app desktop, une présentation réglée en « natif » retombe automatiquement sur le rendu images.
+
+## Commandes à distance (API HTTP)
+
+PresenThor se pilote depuis un Stream Deck (Companion), un automate, un script ou une autre machine. Le jeton se trouve dans *Préférences → Commandes à distance*.
+
+Déclencher une colonne :
+
+```bash
+curl "http://<ip>:4517/api/go/column/2?token=<jeton>"
+```
+
+Déclencher la colonne 4 du calque 3 :
+
+```bash
+curl "http://<ip>:4517/api/go/clip/3/4?token=<jeton>"
+```
+
+Envoyer n'importe quelle action de la régie :
+
+```bash
+curl -X POST "http://<ip>:4517/api/action" -H "X-Token: <jeton>" -H "content-type: application/json" -d '{"type":"comp.master","value":0.5}'
+```
+
+Autres commandes disponibles : `next`, `prev`, `blackout`, `clear`, `clear-layer/<calque>`, `opacity/<calque>/<0-1>`, `master/<0-1>`, `slide/<n>`, `message/<texte>`, et l'état complet sur `/api/status`. Un calque se désigne par son numéro ou son nom.
 
 ## Raccourcis régie
 

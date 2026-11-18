@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0a0b">
+<title>Intervenir à distance — PresenThor</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/shared/stage.css">
+<style>
+  :root { color-scheme: dark; --accent: #c48626; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; background: #0a0a0b; color: #e7e5e4; font-family: system-ui, -apple-system, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #2c2c33; }
+  header img { width: 36px; height: 36px; } header b { color: var(--accent); }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .gcard { background: #131315; border: 1px solid #2c2c33; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8f8f99; }
+  .screen { aspect-ratio: 16/9; background: #000; border-radius: 8px; overflow: hidden; position: relative; }
+  .screen video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .screen .comp, .screen > .stage { position: absolute; inset: 0; }
+  #me { transform: scaleX(-1); }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #8f8f99; }
+  input, select { font: inherit; color: inherit; background: #0d0d10; border: 1px solid #2c2c33; border-radius: 6px; padding: 8px; }
+  button { font: inherit; border: 1px solid #2c2c33; background: #1c1c20; color: inherit; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 700; }
+  button.off { background: #7f1d1d; border-color: #7f1d1d; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .status { font-size: 13px; } .status.ok { color: #4ade80; } .status.err { color: #f87171; }
+  .meter { height: 6px; background: #222; border-radius: 3px; overflow: hidden; } .meter i { display: block; height: 100%; width: 0; background: #4ade80; transition: width .1s; }
+  .hint { color: #8f8f99; font-size: 12px; }
+</style>
+</head>
+<body>
+<header><img src="/brand/logo-192.png" alt=""><div><b>PresenThor</b> · <span id="show">Intervention à distance</span></div></header>
+<main>
+  <section class="gcard">
+    <h2>Vous</h2>
+    <div class="screen"><video id="me" autoplay muted playsinline></video></div>
+    <div class="meter"><i id="level"></i></div>
+    <label>Votre nom <input id="name" maxlength="40" placeholder="Prénom Nom"></label>
+    <div class="row">
+      <label style="flex:1">Caméra <select id="cam"></select></label>
+      <label style="flex:1">Micro <select id="mic"></select></label>
+    </div>
+    <label>Qualité <select id="quality"><option value="360">Économique (360p)</option><option value="720" selected>Standard (720p)</option><option value="1080">Haute (1080p)</option></select></label>
+    <div class="row">
+      <button class="primary" id="join">Rejoindre la régie</button>
+      <button id="toggle-mic" hidden>Couper le micro</button>
+      <button id="toggle-cam" hidden>Couper la caméra</button>
+      <button id="share" hidden>Partager mon écran</button>
+    </div>
+    <div class="status" id="status">Autorisez l'accès à la caméra et au micro, puis rejoignez.</div>
+  </section>
+  <section class="gcard">
+    <h2>Retour de la salle</h2>
+    <div class="screen" id="ret-box"><video id="ret" autoplay playsinline hidden></video><div id="prog"></div></div>
+    <p class="hint">Vous voyez ici ce qui est diffusé (ou l'image de retour envoyée par la régie) et entendez le son de la salle. Utilisez un casque pour éviter l'écho.</p>
+    <div class="row"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ret-audio" checked> Entendre le retour</label></div>
+  </section>
+</main>
+<script type="module">
+import { Client } from '/shared/client.js';
+import { CompositionView } from '/shared/composition.js';
+import { iceServers } from '/shared/rtc.js';
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const key = params.get('k') || '';
+let gid; try { gid = localStorage.getItem('presenthor.gid') || crypto.randomUUID(); localStorage.setItem('presenthor.gid', gid); } catch { gid = Math.random().toString(36).slice(2); }
+try { $('name').value = localStorage.getItem('presenthor.gname') || ''; } catch {}
+
+let local = null;      // flux caméra + micro
+let screenTrack = null;
+let client = null;
+let state = null;
+const peers = new Map(); // cid -> RTCPeerConnection
+const retAudio = new Map(); // cid -> <audio>
+
+// ---------------------------------------------------------------- caméra / micro
+async function listDevices() {
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  const fill = (sel, kind) => { const cur = sel.value; sel.innerHTML = devs.filter((d) => d.kind === kind).map((d, i) => `<option value="${d.deviceId}">${d.label || kind + ' ' + (i + 1)}</option>`).join(''); if (cur) sel.value = cur; };
+  fill($('cam'), 'videoinput'); fill($('mic'), 'audioinput');
+}
+async function openLocal() {
+  local?.getTracks().forEach((t) => t.stop());
+  const h = +$('quality').value;
+  local = await navigator.mediaDevices.getUserMedia({
+    video: { deviceId: $('cam').value ? { exact: $('cam').value } : undefined, height: { ideal: h }, frameRate: { ideal: 30 } },
+    audio: { deviceId: $('mic').value ? { exact: $('mic').value } : undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  $('me').srcObject = local;
+  meter(local);
+  // Change la caméra / le micro en direct pour tous les écrans connectés.
+  for (const pc of peers.values()) applyTracks(pc);
+  await listDevices();
+}
+let meterCtx;
+function meter(stream) {
+  try {
+    meterCtx?.close();
+    meterCtx = new AudioContext();
+    const an = meterCtx.createAnalyser(); an.fftSize = 512;
+    meterCtx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const tick = () => { an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); $('level').style.width = Math.min(100, m * 1.6) + '%'; requestAnimationFrame(tick); };
+    tick();
+  } catch {}
+}
+$('cam').onchange = $('mic').onchange = $('quality').onchange = () => openLocal().catch(fail);
+
+function applyTracks(pc) {
+  const v = screenTrack || local?.getVideoTracks()[0] || null;
+  const a = local?.getAudioTracks()[0] || null;
+  for (const t of pc.getTransceivers()) {
+    const kind = t.receiver.track?.kind;
+    // Les canaux créés par l'offre sont en « réception seule » par défaut : on envoie aussi.
+    if (t.direction !== 'stopped') t.direction = 'sendrecv';
+    if (kind === 'video') { t.sender.replaceTrack(v).catch(() => {}); limitBitrate(t.sender); }
+    if (kind === 'audio') t.sender.replaceTrack(a).catch(() => {});
+  }
+}
+function limitBitrate(sender) {
+  const kbps = state?.settings?.guestMaxKbps || 2500;
+  const p = sender.getParameters();
+  if (!p.encodings?.length) p.encodings = [{}];
+  p.encodings[0].maxBitrate = kbps * 1000;
+  sender.setParameters(p).catch(() => {});
+}
+
+// ---------------------------------------------------------------- connexion
+function fail(e) { $('status').textContent = 'Erreur : ' + (e.message || e); $('status').className = 'status err'; }
+
+$('join').onclick = async () => {
+  try {
+    if (!local) await openLocal();
+    const name = $('name').value.trim() || 'Invité';
+    try { localStorage.setItem('presenthor.gname', name); } catch {}
+    if (client) { client.raw({ t: 'guest.name', name }); return; }
+    client = new Client({
+      role: 'guest',
+      query: { k: key, gid, name },
+      onState: (s) => { state = s; $('show').textContent = s.show.name; prog?.update(s); },
+      onStatus: (st) => {
+        if (st === 'refused') return fail(new Error('Lien invalide ou expiré : demandez un nouveau lien à la régie.'));
+        if (st === 'replaced') return fail(new Error('Vous êtes connecté depuis une autre fenêtre.'));
+        $('status').textContent = st === 'online' ? 'Connecté à la régie ✓ — vous pouvez être mis à l\'écran à tout moment.' : 'Connexion perdue, reconnexion…';
+        $('status').className = 'status ' + (st === 'online' ? 'ok' : 'err');
+      },
+      onRtc: onSignal,
+    });
+    $('join').textContent = 'Mettre à jour mon nom';
+    for (const b of ['toggle-mic', 'toggle-cam', 'share']) $(b).hidden = false;
+  } catch (e) { fail(e); }
+};
+
+// La régie et les écrans ouvrent chacun une connexion : on répond à leurs offres.
+async function onSignal(m) {
+  const d = m.data;
+  let pc = peers.get(m.from);
+  if (d.kind === 'offer') {
+    pc?.close();
+    pc = new RTCPeerConnection({ iceServers: iceServers(state?.settings) });
+    peers.set(m.from, pc);
+    pc.onicecandidate = (e) => { if (e.candidate) client.rtc(m.from, { kind: 'ice', c: e.candidate }); };
+    pc.ontrack = (e) => onReturn(m.from, e.track, m.fromRole);
+    pc.onconnectionstatechange = () => { if (['failed', 'closed'].includes(pc.connectionState)) { peers.delete(m.from); retAudio.get(m.from)?.remove(); } };
+    await pc.setRemoteDescription(d.sdp);
+    applyTracks(pc);
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    client.rtc(m.from, { kind: 'answer', sdp: pc.localDescription });
+  } else if (d.kind === 'ice' && pc && d.c) {
+    await pc.addIceCandidate(d.c).catch(() => {});
+  }
+}
+
+// Retour envoyé par la régie : son de la salle et/ou image.
+function onReturn(cid, track, role) {
+  if (role !== 'control') return;
+  if (track.kind === 'audio') {
+    let a = retAudio.get(cid);
+    if (!a) { a = new Audio(); a.autoplay = true; retAudio.set(cid, a); document.body.append(a); }
+    a.srcObject = new MediaStream([track]);
+    a.muted = !$('ret-audio').checked;
+  } else {
+    const v = $('ret');
+    v.srcObject = new MediaStream([track]);
+    track.onunmute = () => { v.hidden = false; $('prog').hidden = true; };
+    track.onmute = () => { v.hidden = true; $('prog').hidden = false; };
+  }
+}
+$('ret-audio').onchange = () => { for (const a of retAudio.values()) a.muted = !$('ret-audio').checked; };
+
+// Sans image de retour : la diffusion est recomposée ici (présentations, vidéos, textes…).
+const prog = new CompositionView($('prog'), { client: { now: () => Date.now() + (client?.offset || 0), send: () => {} }, monitor: true, overlays: true });
+
+$('toggle-mic').onclick = (e) => { const t = local?.getAudioTracks()[0]; if (!t) return; t.enabled = !t.enabled; e.target.textContent = t.enabled ? 'Couper le micro' : 'Réactiver le micro'; e.target.classList.toggle('off', !t.enabled); };
+$('toggle-cam').onclick = (e) => { const t = local?.getVideoTracks()[0]; if (!t) return; t.enabled = !t.enabled; e.target.textContent = t.enabled ? 'Couper la caméra' : 'Réactiver la caméra'; e.target.classList.toggle('off', !t.enabled); };
+$('share').onclick = async (e) => {
+  if (screenTrack) { screenTrack.stop(); screenTrack = null; e.target.textContent = 'Partager mon écran'; }
+  else {
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      screenTrack = s.getVideoTracks()[0];
+      screenTrack.onended = () => { screenTrack = null; e.target.textContent = 'Partager mon écran'; for (const pc of peers.values()) applyTracks(pc); };
+      e.target.textContent = 'Arrêter le partage';
+    } catch { return; }
+  }
+  for (const pc of peers.values()) applyTracks(pc);
+};
+
+if (!key) fail(new Error('Lien incomplet : utilisez le lien fourni par la régie.'));
+openLocal().catch(() => listDevices().catch(() => {}));
+</script>
+</body>
+</html>

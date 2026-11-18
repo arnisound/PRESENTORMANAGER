@@ -1,6 +1,6 @@
 // Application Mac / PC : embarque le serveur, ouvre la régie, et pilote les
 // sorties plein écran sur chaque écran physique (projecteur, retour, régie…).
-const { app, BrowserWindow, screen, ipcMain, session, powerSaveBlocker, Menu, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, session, powerSaveBlocker, Menu, shell, globalShortcut, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -44,7 +44,7 @@ function openOutput(outputId, displayId) {
     autoHideMenuBar: true,
     ...(display ? { x: display.bounds.x + 40, y: display.bounds.y + 40, width: 960, height: 540 } : { width: 960, height: 540 }),
     // sandbox désactivé : le preload charge le module natif NDI.
-    webPreferences: { backgroundThrottling: false, sandbox: false, preload: path.join(__dirname, 'preload.cjs') },
+    webPreferences: { backgroundThrottling: false, sandbox: false, webviewTag: true, preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadURL(`${server.url}/output/?id=${encodeURIComponent(outputId)}`);
   win.outputDisplayId = display ? display.id : null;
@@ -156,8 +156,21 @@ app.whenReady().then(async () => {
     cb({ responseHeaders: headers });
   });
   // Caméras, cartes d'acquisition, micro, plein écran : accordés sans popup.
-  session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(['media', 'fullscreen', 'display-capture', 'clipboard-sanitized-write', 'wake-lock'].includes(perm)));
-  session.defaultSession.setPermissionCheckHandler(() => true);
+  const allowPerms = (ses) => {
+    ses.setPermissionRequestHandler((wc, perm, cb) => cb(['media', 'fullscreen', 'display-capture', 'clipboard-sanitized-write', 'wake-lock', 'notifications'].includes(perm)));
+    ses.setPermissionCheckHandler(() => true);
+  };
+  allowPerms(session.defaultSession);
+  // Pages web / visio : session dédiée et persistante (les connexions sont mémorisées).
+  const webSession = session.fromPartition('persist:presenthor-web');
+  allowPerms(webSession);
+  webSession.setUserAgent(webSession.getUserAgent().replace(/\s*(Electron|presenthor)\/[^\s]+/gi, ''));
+  app.on('web-contents-created', (e, wc) => {
+    // Sécurité des pages intégrées : pas d'accès à Node, pas de preload.
+    wc.on('will-attach-webview', (ev, prefs) => { delete prefs.preload; prefs.nodeIntegration = false; prefs.contextIsolation = true; });
+    // Les pages web ouvrent leurs liens "nouvelle fenêtre" dans le navigateur du système.
+    if (wc.getType() === 'webview') wc.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  });
 
   powerSaveBlocker.start('prevent-display-sleep');
 
@@ -177,6 +190,14 @@ app.whenReady().then(async () => {
   globalShortcut.register('CommandOrControl+Alt+F', exitAllFullscreen);
   ipcMain.handle('displays:identify', () => identifyDisplays());
   ipcMain.handle('server:url', () => server.url);
+  // Fenêtres et écrans capturables (source « Fenêtre / écran »).
+  ipcMain.handle('capture:sources', async (e, withThumbs) => {
+    const list = await desktopCapturer.getSources({ types: ['window', 'screen'], thumbnailSize: withThumbs ? { width: 320, height: 180 } : { width: 0, height: 0 } });
+    const own = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId?.()));
+    return list.filter((x) => !own.has(x.id)).map((x) => ({ id: x.id, name: x.name, screen: x.id.startsWith('screen:'), thumb: withThumbs ? x.thumbnail.toDataURL() : null }));
+  });
+  // Identifiant de capture d'une sortie (retour vidéo envoyé aux invités de la visio).
+  ipcMain.handle('output:media-source', (e, id) => outputs.get(id)?.getMediaSourceId?.() || null);
   const notify = () => control?.webContents.send('displays:changed', displayList());
   screen.on('display-added', notify);
   screen.on('display-removed', (e, d) => {
@@ -201,7 +222,7 @@ app.whenReady().then(async () => {
   buildMenu();
   control = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1000, minHeight: 640, title: 'PresenThor', backgroundColor: '#0a0a0b', icon: ICON,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false, sandbox: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false, sandbox: false, webviewTag: true },
   });
   control.loadURL(server.url + '/control/');
   control.on('closed', () => { control = null; app.quit(); });

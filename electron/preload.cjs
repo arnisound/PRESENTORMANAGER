@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld('presenthor', {
   identifyDisplays: () => ipcRenderer.invoke('displays:identify'),
   onDisplaysChanged: (fn) => ipcRenderer.on('displays:changed', (e, list) => fn(list)),
   setOutputFullscreen: (id, on) => ipcRenderer.invoke('output:fullscreen', on ? 'on' : 'off', id),
+  captureSources: (withThumbs = false) => ipcRenderer.invoke('capture:sources', withThumbs),
+  outputMediaSource: (id) => ipcRenderer.invoke('output:media-source', id),
   outputsState: () => ipcRenderer.invoke('outputs:state'),
   // Depuis une fenêtre de sortie
   exitOutputFullscreen: () => ipcRenderer.invoke('output:fullscreen', 'off'),

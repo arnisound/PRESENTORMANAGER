@@ -5,11 +5,13 @@ import { Stage, describe, pdfThumb, joinUrl } from '/shared/renderer.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
 import { openSceneEditor } from '/control/scene-editor.js';
 import { openMappingEditor } from '/control/mapping-editor.js';
+import { openPrefs } from '/control/prefs.js';
+import { guestStream, setReturnTracks } from '/shared/rtc.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const desktop = window.presenthor || null; // API de l'app Mac / PC
-const ICONS = { slides: '📑', video: '🎬', image: '🖼', audio: '🎵', web: '🌐', camera: '🎥', ndi: '📡', scene: '🧩', poll: '📊', qa: '💬', title: '🅃', black: '⬛', color: '🎨', qr: '▦' };
-const TYPE_LABEL = { slides: 'PRÉSENTATION', video: 'VIDÉO', image: 'IMAGE', audio: 'AUDIO', web: 'WEB', camera: 'CAMÉRA', ndi: 'NDI', scene: 'SCÈNE', poll: 'SONDAGE', qa: 'Q&R', title: 'TEXTE', black: 'NOIR', color: 'COULEUR', qr: 'QR' };
+const ICONS = { slides: '📑', video: '🎬', image: '🖼', audio: '🎵', web: '🌐', camera: '🎥', ndi: '📡', scene: '🧩', window: '🪟', guest: '🧑‍💻', poll: '📊', qa: '💬', title: '🅃', black: '⬛', color: '🎨', qr: '▦' };
+const TYPE_LABEL = { slides: 'PRÉSENTATION', video: 'VIDÉO', image: 'IMAGE', audio: 'AUDIO', web: 'WEB', camera: 'CAMÉRA', ndi: 'NDI', scene: 'SCÈNE', window: 'FENÊTRE', guest: 'INVITÉ', poll: 'SONDAGE', qa: 'Q&R', title: 'TEXTE', black: 'NOIR', color: 'COULEUR', qr: 'QR' };
 const BLENDS = [['normal', 'Normal'], ['plus-lighter', 'Ajout (Add)'], ['screen', 'Écran'], ['multiply', 'Produit'], ['overlay', 'Incrustation'], ['lighten', 'Éclaircir'], ['darken', 'Assombrir'], ['difference', 'Différence'], ['color-dodge', 'Densité -'], ['luminosity', 'Luminosité']];
 const MASKS = [['none', 'Aucun'], ['ellipse', 'Ovale'], ['circle', 'Cercle'], ['rounded', 'Coins arrondis'], ['diamond', 'Losange']];
 const FX = {
@@ -73,6 +75,7 @@ const sel_ = (opts, value) => opts.map(([v, l]) => `<option value="${esc(v)}"${S
 const field = (label, input) => `<label class="field"><span>${label}</span>${input}</label>`;
 const check = (label, attr, on) => `<label class="check"><input type="checkbox" ${attr}${on ? ' checked' : ''}> ${label}</label>`;
 const fmt2 = (v) => (Math.round(v * 100) / 100).toString();
+const ask = (msg) => S?.settings?.confirmDelete === false || window.confirm(msg);
 
 // ------------------------------------------------------------------ vignettes
 const thumbs = new Map(); // clé -> dataURL
@@ -133,6 +136,11 @@ function thumbHtml(cue) {
     case 'ndi': return icon(cue.source?.name?.replace(/^.*\((.*)\)$/, '$1') || '');
     case 'web': return icon(cue.url ? (() => { try { return new URL(cue.url).hostname; } catch { return ''; } })() : 'URL ?');
     case 'poll': return icon(S.polls.find((p) => p.id === cue.pollId)?.question || '');
+    case 'guest': {
+      const on = S.guests?.some((g) => g.id === cue.guestId);
+      return icon(on ? 'en ligne' : 'hors ligne');
+    }
+    case 'window': return icon(cue.sourceName ? cue.sourceName.slice(0, 22) : 'à choisir');
     default: return icon();
   }
 }
@@ -149,6 +157,8 @@ function onState(state) {
 }
 
 function renderAll() {
+  document.documentElement.style.setProperty('--cell-w', (S.settings.cellSize || 132) + 'px');
+  keepGuests();
   if (document.activeElement !== $('#show-name')) $('#show-name').value = S.show.name;
   document.title = S.show.name + ' — PresenThor';
   const c = S.clients;
@@ -266,6 +276,10 @@ function renderProps(force = false) {
         ${sliderRow('Volume', 'layer:volume', l.volume ?? 1, 0, 1, 0.01)}
         <div class="grid2">${field('Mode de fusion', `<select data-bind="layer:blend">${sel_(BLENDS, l.blend)}</select>`)}
           ${field('Transition entre clips', `<select data-bind="layer:transitionMs" data-num>${sel_([[0, 'Cut'], [250, 'Fondu 0,25 s'], [500, 'Fondu 0,5 s'], [1000, 'Fondu 1 s'], [2000, 'Fondu 2 s'], [4000, 'Fondu 4 s']], l.transitionMs || 0)}</select>`)}</div>
+        <div class="box"><b>Destination (routage)</b>
+          ${check('Composition principale', 'data-route="main"', l.mainOut !== false)}
+          ${S.outputs.map((o) => check(`Écran « ${esc(o.name)} »`, `data-route="${o.id}"`, (l.auxOutputs || []).includes(o.id))).join('')}
+          <span class="hint">Cochez un écran pour y envoyer ce calque. Décochez « Composition principale » pour qu'il n'apparaisse QUE sur ces écrans (sortie AUX : logo latéral, retour particulier…). Une sortie réglée sur « AUX » n'affiche que les calques qui lui sont envoyés.</span></div>
         ${transformBlock('layer', l.transform)}
         ${effectsBlock('layer', l.effects, l.mask)}
         <div class="row"><button class="btn sm" data-act="layer-up">Monter ▲</button><button class="btn sm" data-act="layer-down">Descendre ▼</button>
@@ -337,6 +351,20 @@ function clipProps() {
     h += field('Titre quand aucune question n\'est affichée', `<input ${f('title')} value="${esc(c.title || '')}" placeholder="Posez vos questions">`);
     h += check('Fond transparent', `${f('transparent')} data-type="bool"`, c.transparent);
   }
+  if (c.type === 'window') {
+    h += `<div class="box"><b>${esc(c.sourceName || 'Aucune fenêtre choisie')}</b>
+      ${desktop?.captureSources ? `<button class="btn primary" data-act="pick-window">Choisir la fenêtre ou l'écran…</button>` : '<span class="hint">Capture disponible dans l\'app Mac / PC.</span>'}
+      ${check('Capturer aussi le son de l\'ordinateur', `${f('withAudio')} data-type="bool"`, c.withAudio)}
+      <span class="hint">Son : Windows uniquement (son global de l'ordinateur). Sur Mac, autorisez « Enregistrement de l'écran » pour PresenThor dans les Réglages système. Si le logiciel est relancé, la fenêtre est retrouvée par son nom.</span></div>`;
+  }
+  if (c.type === 'guest') {
+    const g = S.guests?.find((x) => x.id === c.guestId);
+    h += `<div class="box"><b>${g ? '🟢 ' + esc(g.name) + ' est connecté' : '⚪ Invité hors ligne'}</b>
+      ${field('Invité', `<select ${f('guestId')}>${sel_([...(S.guests || []).map((x) => [x.id, x.name]), ...(g ? [] : [[c.guestId, (c.name || 'Invité') + ' (hors ligne)']])], c.guestId)}</select>`)}
+      ${sliderRow('Volume', 'clip:volume', c.volume ?? 1, 0, 1, 0.01)}
+      ${check('Remplir le cadre (recadrer)', `${f('fill')} data-type="bool"`, c.fill)}
+      <span class="hint">Le son de l'invité sort sur les sorties où « Son » est coché. Le retour vers l'invité se règle dans l'onglet Public.</span></div>`;
+  }
   if (c.type === 'poll') h += field('Sondage', `<select ${f('pollId')}>${sel_([['', '—'], ...S.polls.map((p) => [p.id, p.question])], c.pollId)}</select>`);
   if (c.type === 'scene') h += `<button class="btn" data-act="scene-edit">Éditer la scène</button>`;
   if (['video', 'image', 'slides', 'camera', 'ndi', 'web', 'scene'].includes(c.type)) {
@@ -360,10 +388,12 @@ function sourceTemplates() {
     ['qr', 'QR code (lien)', { type: 'qr', text: 'https://', transparent: true, name: 'QR code' }],
     ['web', 'Page web / visio', { type: 'web', url: '', name: 'Page web' }],
     ['camera', 'Caméra / capture HDMI', { type: 'camera', name: 'Caméra' }],
+    ['window', 'Fenêtre ou écran de l\'ordinateur', { type: 'window', name: 'Fenêtre' }],
     ['qa', 'Questions du public', { type: 'qa', name: 'Questions' }],
     ['scene', 'Scène (composition libre)', { type: 'scene', layers: [], name: 'Scène' }],
     ['black', 'Noir', { type: 'black', name: 'Noir' }],
   ];
+  for (const g of S.guests || []) list.push(['guest', 'Invité : ' + g.name, { type: 'guest', guestId: g.id, name: g.name }]);
   for (const n of S.ndi?.sources || []) list.push(['ndi', n.name, { type: 'ndi', source: n, name: n.name }]);
   for (const p of S.polls) list.push(['poll', 'Sondage : ' + p.question, { type: 'poll', pollId: p.id, name: 'Sondage : ' + p.question }]);
   return list;
@@ -376,6 +406,7 @@ function renderBrowser(force = false) {
   const html = { media: tabMedia, sources: tabSources, fx: tabFx, outputs: tabOutputs, public: tabPublic, live: tabLive, settings: tabSettings }[btab]();
   patch(el, html, force && !isEditing(el));
   if (btab === 'public' || btab === 'settings') fillQr(el);
+  if (btab === 'public') attachGuestPreviews();
 }
 
 function tabMedia() {
@@ -407,7 +438,7 @@ function tabFx() {
 }
 
 function outputSources() {
-  return [['program', 'Composition (sortie principale)'], ['clean', 'Composition sans bandeau'], ...S.comp.layers.map((l) => ['layer:' + l.id, 'Calque seul : ' + l.name]),
+  return [['program', 'Composition (sortie principale)'], ['clean', 'Composition sans bandeau'], ['aux', 'AUX : uniquement les calques envoyés à cet écran'], ...S.comp.layers.map((l) => ['layer:' + l.id, 'Calque seul : ' + l.name]),
     ['presenter', 'Retour présentateur'], ['multiview', 'Multiview régie'], ...S.cues.map((c) => ['cue:' + c.id, 'Clip fixe : ' + c.name])];
 }
 
@@ -454,7 +485,18 @@ function tabLive() {
 
 function tabPublic() {
   const kinds = [['choice', 'Choix unique'], ['multi', 'Choix multiples'], ['rating', 'Note de 1 à 5'], ['words', 'Nuage de mots']];
-  let h = `<div class="box"><div class="row"><img class="qr" data-qr="vote" alt=""><div><b>Lien participants</b><div class="link"></div>
+  const guests = S.guests || [];
+  const rs = retSettings();
+  let h = `<div class="box"><div class="box-head"><b>Visio : intervenants à distance</b><button class="btn sm primary" data-act="guest-copy">Copier le lien invité</button></div>
+    <span class="hint">L'intervenant ouvre le lien dans son navigateur (caméra + micro, partage d'écran possible). Il apparaît ici, puis dans Sources pour le mettre à l'écran.</span>
+    <div class="guests">${guests.map((g) => `<div class="guest"><video data-guest="${g.id}" autoplay muted playsinline></video>
+      <div class="row"><b>${esc(g.name)}</b><span class="spacer"></span><button class="btn sm primary" data-act="guest-place" data-id="${g.id}">À la grille</button></div></div>`).join('') || '<span class="hint">Aucun invité connecté.</span>'}</div>
+    <b>Retour vers les invités</b>
+    <div class="grid2">${field('Son envoyé (console, micro…)', `<select data-ret="audio">${sel_([['', 'Aucun'], ...audioInputs.map((d) => [d.deviceId, d.label || 'Entrée audio'])], rs.audio)}</select>`)}
+      ${field('Image envoyée', `<select data-ret="video">${sel_([['', 'Aucune (ils voient la diffusion recomposée)'], ...S.outputs.filter(() => desktop).map((o) => ['out:' + o.id, 'Sortie : ' + o.name]), ...cameras.map((d) => ['cam:' + d.deviceId, 'Caméra : ' + (d.label || 'caméra')])], rs.video)}</select>`)}</div>
+    <span class="hint">${desktop ? 'Une sortie doit être ouverte pour être envoyée. ' : ''}Pour éviter l'écho, envoyez un mix sans la voix de l'invité (mix-minus) et demandez-lui un casque.</span></div>
+    `;
+  h += `<div class="box"><div class="row"><img class="qr" data-qr="vote" alt=""><div><b>Lien participants</b><div class="link"></div>
     <p class="hint">${S.clients.audience} connecté(s)</p></div></div></div>
     <div class="box"><b>Nouveau sondage</b><input id="poll-q" placeholder="Votre question"><select id="poll-kind">${sel_(kinds, 'choice')}</select>
     <textarea id="poll-opts" placeholder="Une réponse par ligne">Oui\nNon</textarea><button class="btn primary" data-act="poll-create">Créer</button></div>`;
@@ -515,7 +557,10 @@ async function placeCue(cue, at) {
   const target = at || (sel && !layerById(sel.layerId)?.clips[sel.col] ? sel : firstFreeCell(sel?.layerId || selLayerId));
   if (target.col >= S.comp.columns.length) await send({ type: 'comp.column.add' });
   const r = await send({ type: 'comp.cell.create', layerId: target.layerId, col: target.col, cue });
-  if (r?.id) { sel = { layerId: target.layerId, col: target.col }; ptab = 'clip'; renderAll(); }
+  if (r?.id) {
+    sel = { layerId: target.layerId, col: target.col }; ptab = 'clip'; renderAll();
+    if (cue.type === 'window' && desktop?.captureSources) pickWindow(r.id);
+  }
   return r;
 }
 const mediaCue = (m) => ({ type: m.kind === 'office' ? 'slides' : m.kind, mediaId: m.id });
@@ -571,7 +616,12 @@ document.addEventListener('click', async (e) => {
   const pt = t.closest('[data-ptab]');
   if (pt) { ptab = pt.dataset.ptab; return renderProps(true); }
   const bt = t.closest('[data-btab]');
-  if (bt) { btab = bt.dataset.btab; if (btab === 'outputs' && desktop) displays = await desktop.listDisplays(); return renderBrowser(true); }
+  if (bt) {
+    btab = bt.dataset.btab;
+    if (btab === 'outputs' && desktop) displays = await desktop.listDisplays();
+    if (btab === 'public') { await listAudioInputs(); if (!cameras.length) detectCameras(); }
+    return renderBrowser(true);
+  }
   const sl = t.closest('.slides-strip [data-slide]');
   if (sl) { const c = selCue(); return c && send({ type: 'comp.slide', cueId: c.id, slide: +sl.dataset.slide }); }
 
@@ -590,18 +640,21 @@ document.addEventListener('click', async (e) => {
     'slide-delta': () => c && send({ type: 'comp.slide', cueId: c.id, delta: +b.dataset.d }),
     'cell-trigger': () => sel && send({ type: 'comp.trigger', ...sel }),
     'cell-unset': () => sel && send({ type: 'comp.cell.set', ...sel, cueId: null }),
-    'cue-delete': () => c && confirm(`Supprimer le clip « ${c.name} » ?`) && send({ type: 'cue.remove', id: c.id }),
+    'cue-delete': () => c && ask(`Supprimer le clip « ${c.name} » ?`) && send({ type: 'cue.remove', id: c.id }),
+    'pick-window': () => c && pickWindow(c.id),
+    'guest-place': () => { const g = S.guests.find((x) => x.id === id); if (g) placeCue({ type: 'guest', guestId: g.id, name: g.name }); },
+    'guest-copy': () => navigator.clipboard.writeText(guestLink()).then(() => toast('Lien invité copié')),
     'scene-edit': () => c && openSceneEditor({ getState: () => S, send, cueId: c.id, client }),
     'reset-transform': () => setTarget(b.dataset.target, { transform: { x: 0, y: 0, scale: 1, rotate: 0 } }),
     'fx-remove': () => { const o = targetObj(b.dataset.target); setTarget(b.dataset.target, { effects: o.effects.filter((_, i) => i !== +b.dataset.i) }); },
     'layer-up': () => send({ type: 'comp.layer.move', id: selLayerId, dir: 1 }),
     'layer-down': () => send({ type: 'comp.layer.move', id: selLayerId, dir: -1 }),
-    'layer-remove': () => confirm('Supprimer ce calque et ses cases ?') && send({ type: 'comp.layer.remove', id: selLayerId }),
+    'layer-remove': () => ask('Supprimer ce calque et ses cases ?') && send({ type: 'comp.layer.remove', id: selLayerId }),
     cams: () => detectCameras(true),
     import: () => $('#file-input').click(),
-    'media-remove': () => confirm('Supprimer ce média ?') && send({ type: 'media.remove', id }),
+    'media-remove': () => ask('Supprimer ce média ?') && send({ type: 'media.remove', id }),
     'out-add': () => send({ type: 'output.add', name: 'Écran ' + (S.outputs.length + 1) }),
-    'out-remove': () => confirm('Supprimer cette sortie ?') && (desktop?.closeOutput(id), send({ type: 'output.remove', id })),
+    'out-remove': () => ask('Supprimer cette sortie ?') && (desktop?.closeOutput(id), send({ type: 'output.remove', id })),
     'out-window': () => window.open(`/output/?id=${id}`, 'out_' + id, 'popup,width=960,height=540'),
     'out-open': () => {
       const v = Number(document.querySelector(`[data-out-display="${id}"]`)?.value);
@@ -627,8 +680,8 @@ document.addEventListener('click', async (e) => {
       if (r?.ok) $('#poll-q').value = '';
     },
     'poll-open': () => send({ type: 'poll.open', id: S.activePollId === id ? null : id }),
-    'poll-reset': () => confirm('Effacer les réponses ?') && send({ type: 'poll.reset', id }),
-    'poll-remove': () => confirm('Supprimer ce sondage ?') && send({ type: 'poll.remove', id }),
+    'poll-reset': () => ask('Effacer les réponses ?') && send({ type: 'poll.reset', id }),
+    'poll-remove': () => ask('Supprimer ce sondage ?') && send({ type: 'poll.remove', id }),
     'poll-place': () => { const p = S.polls.find((x) => x.id === id); placeCue({ type: 'poll', pollId: id, name: 'Sondage : ' + p.question }); },
     'qa-toggle': () => send({ type: 'qa.toggle' }),
     'qa-set': () => send({ type: 'qa.update', id, status: b.dataset.status }),
@@ -718,6 +771,14 @@ document.addEventListener('change', (e) => {
     return setTarget(target, { effects: o.effects.map((x, k) => (k === +i ? { ...x, on: el.checked } : x)) });
   }
   if (el.dataset.compClicker !== undefined) return send({ type: 'comp.settings', clickerColumns: el.checked });
+  if (el.dataset.route) {
+    const l = layerById(selLayerId);
+    if (el.dataset.route === 'main') return send({ type: 'comp.layer.update', id: l.id, patch: { mainOut: el.checked } });
+    const aux = new Set(l.auxOutputs || []);
+    el.checked ? aux.add(el.dataset.route) : aux.delete(el.dataset.route);
+    return send({ type: 'comp.layer.update', id: l.id, patch: { auxOutputs: [...aux] } });
+  }
+  if (el.dataset.ret) return applyReturn(el.dataset.ret, el.value);
   if (el.dataset.layerName !== undefined) return send({ type: 'comp.layer.update', id: selLayerId, patch: { name: el.value } });
   if (el.dataset.cueField) {
     const c = selCue();
@@ -743,6 +804,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.setField) return send({ type: 'settings.update', patch: { [el.dataset.setField]: readValue(el) } });
 });
 
+$('#prefs-btn').onclick = () => openPrefs({ getState: () => S, send, info, toast });
 $('#show-name').addEventListener('change', (e) => send({ type: 'show.rename', name: e.target.value }));
 $('#blackout').onclick = () => send({ type: 'blackout.toggle' });
 $('#clear-all').onclick = () => send({ type: 'comp.clear' });
@@ -774,7 +836,7 @@ document.addEventListener('contextmenu', (e) => {
       ['Renommer…', () => { const n = prompt('Nom de la colonne :', S.comp.columns[i].name); if (n != null) send({ type: 'comp.column.update', index: i, name: n }); }],
       ['Insérer une colonne après', () => send({ type: 'comp.column.add', index: i })],
       '-',
-      ['Supprimer la colonne', () => confirm('Supprimer cette colonne ?') && send({ type: 'comp.column.remove', index: i })],
+      ['Supprimer la colonne', () => ask('Supprimer cette colonne ?') && send({ type: 'comp.column.remove', index: i })],
     ]);
   }
   const pos = { layerId: cell.dataset.layer, col: +cell.dataset.col };
@@ -787,7 +849,9 @@ document.addEventListener('contextmenu', (e) => {
     ['Dupliquer dans la case libre suivante', async () => { const col = next(); if (col >= S.comp.columns.length) await send({ type: 'comp.column.add' }); send({ type: 'comp.cell.move', from: pos, to: { layerId: pos.layerId, col }, copy: true }); }],
     ['Retirer de la case', () => send({ type: 'comp.cell.set', ...pos, cueId: null })],
     '-',
-    ['Supprimer le clip', () => confirm('Supprimer ce clip ?') && send({ type: 'cue.remove', id: cid })],
+    ...S.outputs.map((o) => [`Afficher seul sur « ${o.name} »`, () => { send({ type: 'output.update', id: o.id, patch: { source: 'cue:' + cid } }); toast(`« ${o.name} » affiche maintenant ce clip (onglet Sorties pour revenir)`); }]),
+    '-',
+    ['Supprimer le clip', () => ask('Supprimer ce clip ?') && send({ type: 'cue.remove', id: cid })],
   ]);
 });
 
@@ -880,6 +944,72 @@ window.addEventListener('keydown', (e) => {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && sel && selCue()) { e.preventDefault(); send({ type: 'comp.cell.set', ...sel, cueId: null }); }
 });
+
+// ------------------------------------------------------------------ visio : invités et retour
+let audioInputs = [];
+const guestLink = () => `${(S.settings.publicUrl || '').replace(/\/$/, '') || location.origin}/guest/?k=${S.settings.guestToken}`;
+const retSettings = () => { try { return JSON.parse(localStorage.getItem('presenthor.return') || '{}'); } catch { return {}; } };
+// La régie garde une connexion avec chaque invité : aperçu ici + envoi du retour.
+const guestStreams = new Map();
+function keepGuests() {
+  for (const g of S.guests || []) {
+    const known = guestStreams.get(g.id);
+    if (known?.cid === g.cid) continue;
+    const entry = { cid: g.cid, stream: null };
+    guestStreams.set(g.id, entry);
+    guestStream(client, () => S, g.id).then((st) => { entry.stream = st; attachGuestPreviews(); }).catch(() => { if (guestStreams.get(g.id) === entry) guestStreams.delete(g.id); });
+  }
+  for (const id of guestStreams.keys()) if (!S.guests?.some((g) => g.id === id)) guestStreams.delete(id);
+  attachGuestPreviews();
+}
+function attachGuestPreviews() {
+  for (const v of document.querySelectorAll('video[data-guest]')) {
+    const st = guestStreams.get(v.dataset.guest)?.stream;
+    if (st && v.srcObject !== st) v.srcObject = st;
+  }
+}
+async function applyReturn(kind, value) {
+  const rs = retSettings();
+  rs[kind] = value;
+  try { localStorage.setItem('presenthor.return', JSON.stringify(rs)); } catch {}
+  try {
+    if (kind === 'audio') {
+      const st = value ? await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: value }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } }) : null;
+      setReturnTracks({ audio: st?.getAudioTracks()[0] || null });
+    } else {
+      let st = null;
+      if (value.startsWith('cam:')) st = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: value.slice(4) }, height: { ideal: 720 } } });
+      if (value.startsWith('out:')) {
+        const sid = await desktop?.outputMediaSource(value.slice(4));
+        if (!sid) { toast('Ouvrez d\'abord cette sortie'); return; }
+        st = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sid, maxWidth: 1280, maxHeight: 720, maxFrameRate: 30 } } });
+      }
+      setReturnTracks({ video: st?.getVideoTracks()[0] || null });
+    }
+    toast('Retour mis à jour');
+  } catch (e) { toast('Retour impossible : ' + e.message); }
+}
+async function listAudioInputs() {
+  try { audioInputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput'); } catch {}
+}
+listAudioInputs();
+// Rétablit le retour choisi lors de la dernière session.
+setTimeout(() => { const rs = retSettings(); if (rs.audio) applyReturn('audio', rs.audio); if (rs.video) applyReturn('video', rs.video); }, 1500);
+
+// ------------------------------------------------------------------ capture de fenêtre
+async function pickWindow(cueId) {
+  const list = await desktop.captureSources(true);
+  const root = document.createElement('div');
+  root.className = 'modal';
+  root.innerHTML = `<div class="modal-box picker"><header class="modal-head"><b>Choisir une fenêtre ou un écran</b><span class="hint">Mac : autorisez « Enregistrement de l'écran » pour PresenThor si la liste est vide.</span><div class="spacer"></div><button class="btn" data-x>Annuler</button></header>
+    <div class="win-grid">${list.map((w) => `<button class="win" data-id="${esc(w.id)}" data-name="${esc(w.name)}"><img src="${w.thumb}" alt=""><span>${w.screen ? '🖥 ' : ''}${esc(w.name)}</span></button>`).join('') || '<p class="hint">Aucune fenêtre capturable.</p>'}</div></div>`;
+  document.body.append(root);
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('.win');
+    if (b) send({ type: 'cue.update', id: cueId, patch: { sourceId: b.dataset.id, sourceName: b.dataset.name, name: b.dataset.name.slice(0, 40) } });
+    if (b || e.target.closest('[data-x]') || e.target === root) root.remove();
+  });
+}
 
 // ------------------------------------------------------------------ caméras
 async function detectCameras(ask = false) {

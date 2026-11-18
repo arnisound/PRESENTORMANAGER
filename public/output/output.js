@@ -22,14 +22,18 @@ const client = new Client({
   onState: (state) => render(state),
   onStatus: (s) => {
     // On garde la dernière image à l'écran en cas de coupure réseau.
-    statusEl.hidden = s === 'online' || view?.source === 'program' || view?.source === 'clean';
+    statusEl.hidden = s === 'online' || client.state?.settings?.showOfflineBanner === false || view?.source === 'program' || view?.source === 'clean';
     statusEl.textContent = 'Connexion perdue — reconnexion…';
   },
 });
 if (!previewMode) bindClicker(client);
 
 function render(state) {
-  document.documentElement.style.setProperty('--accent', state.settings.accent);
+  const st = state.settings;
+  document.documentElement.style.setProperty('--accent', st.accent);
+  document.body.style.background = st.outputBackground || '#000';
+  document.body.classList.toggle('show-cursor', st.hideCursor === false);
+  if (st.keepAwake !== false) keepAwake();
   if (!outputId) return renderPicker(state);
   const out = state.outputs.find((o) => o.id === outputId);
   if (!out) { app.innerHTML = '<div class="picker"><h1>Sortie supprimée</h1><p><a href="/output/">Choisir une autre sortie</a></p></div>'; view = null; return; }
@@ -51,12 +55,14 @@ function baseOpts(out) {
 // Contenu d'une source "écran" : composition (programme), composition sans habillage,
 // calque isolé, élément fixe. ("preview" : ancien mode conducteur.)
 function makeSourceStage(el, source, opts) {
-  if (source === 'program' || source === 'clean' || source.startsWith('layer:')) {
+  if (source === 'program' || source === 'clean' || source === 'aux' || source.startsWith('layer:')) {
     const view = new CompositionView(el, {
       ...opts,
       reportEnded: !previewMode && source === 'program',
       overlays: source === 'program',
       only: source.startsWith('layer:') ? source.slice(6) : null,
+      outputId,
+      aux: source === 'aux',
     });
     return (s) => view.update(s);
   }
@@ -174,7 +180,7 @@ function presenterView(opts) {
     const v = timerValue(state.timer, client.now());
     const el = $('[data-timer]');
     el.textContent = fmtTime(v, true);
-    el.className = 'p-timer' + (state.timer.mode === 'down' ? (v < 0 ? ' over' : v < 120000 ? ' warn' : '') : '');
+    el.className = 'p-timer' + (state.timer.mode === 'down' ? (v < 0 ? ' over' : v < (state.settings.timerWarnSec ?? 120) * 1000 ? ' warn' : '') : '');
   };
   setInterval(tick, 250);
   return {
@@ -266,6 +272,6 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'F11') { e.preventDefault(); toggleFs(); }
 });
 // Évite la mise en veille de l'écran pendant la diffusion (navigateurs compatibles).
-const keepAwake = () => navigator.wakeLock?.request('screen').catch(() => {});
-keepAwake();
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && keepAwake());
+let wake = null;
+function keepAwake() { if (!wake && document.visibilityState === 'visible') wake = navigator.wakeLock?.request('screen').then((l) => { l.addEventListener('release', () => { wake = null; }); return l; }).catch(() => { wake = null; }); }
+document.addEventListener('visibilitychange', () => client.state?.settings?.keepAwake !== false && keepAwake());

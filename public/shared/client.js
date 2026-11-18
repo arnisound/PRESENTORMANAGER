@@ -9,8 +9,9 @@ export function getPin() {
 function setPin(p) { try { localStorage.setItem(PIN_KEY, p); } catch {} }
 
 export class Client {
-  constructor({ role, output = null, onState, onPublic, onStatus } = {}) {
-    Object.assign(this, { role, output, onState, onPublic, onStatus });
+  constructor({ role, output = null, onState, onPublic, onStatus, onRtc, query = {} } = {}) {
+    Object.assign(this, { role, output, onState, onPublic, onStatus, onRtc, query });
+    this.rtcHandlers = new Set();
     this.offset = 0; // horloge serveur - horloge locale
     this.bestRtt = Infinity;
     this.pending = new Map();
@@ -27,6 +28,7 @@ export class Client {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const q = new URLSearchParams({ role: this.role });
     if (this.output) q.set('output', this.output);
+    for (const [k, v] of Object.entries(this.query || {})) if (v != null) q.set(k, v);
     const pin = getPin();
     if (pin) q.set('pin', pin);
     const ws = (this.ws = new WebSocket(`${proto}://${location.host}/ws?${q}`));
@@ -34,6 +36,7 @@ export class Client {
     ws.onmessage = (e) => this.receive(JSON.parse(e.data));
     ws.onclose = (e) => {
       this.status('offline');
+      if (e.code === 4003 || e.code === 4004) { this.onStatus?.(e.code === 4003 ? 'refused' : 'replaced'); return; }
       if (e.code === 4001) {
         const p = prompt('Code PIN de la régie :');
         if (p != null) setPin(p);
@@ -52,7 +55,11 @@ export class Client {
         this.bestRtt = Math.min(this.bestRtt, rtt);
         this.offset = m.s - (m.c + rtt / 2);
       }
+    } else if (m.t === 'rtc') {
+      this.onRtc?.(m);
+      for (const h of this.rtcHandlers) h(m);
     } else if (m.t === 'hello') {
+      this.cid = m.cid;
       if (this.bestRtt === Infinity) this.offset = m.serverNow - Date.now();
     } else if (m.t === 'state') {
       this.state = m.state;
@@ -66,6 +73,10 @@ export class Client {
   }
 
   ping() { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'ping', c: Date.now() })); }
+
+  // Message de signalisation WebRTC vers une autre connexion (invité, écran, régie).
+  rtc(to, data) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'rtc', to, data })); }
+  raw(msg) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(msg)); }
 
   send(action) {
     return new Promise((resolve) => {
@@ -84,9 +95,10 @@ export function bindClicker(client, { allowBlackout = true } = {}) {
     const t = e.target;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     let type = null;
-    if (['PageDown', 'ArrowRight', 'ArrowDown', 'MediaTrackNext'].includes(e.key) || (e.key === ' ' && e.target === document.body && client.role === 'output')) type = 'next';
+    const st = client.state?.settings || {};
+    if (['PageDown', 'ArrowRight', 'ArrowDown', 'MediaTrackNext'].includes(e.key) || (e.key === ' ' && st.spaceNext)) type = 'next';
     else if (['PageUp', 'ArrowLeft', 'ArrowUp', 'MediaTrackPrevious'].includes(e.key)) type = 'prev';
-    else if (allowBlackout && ['b', 'B', '.', ','].includes(e.key)) type = 'blackout.toggle';
+    else if (allowBlackout && st.blackoutKey !== false && ['b', 'B', '.', ','].includes(e.key)) type = 'blackout.toggle';
     if (!type) return;
     e.preventDefault();
     if (!e.repeat) client.send({ type });

@@ -19,10 +19,11 @@ export function defaultLiveComp() {
   return { active: {}, at: {}, pb: {}, slides: {}, slideAt: {}, deck: null, column: null };
 }
 
-function newLayer(name, n) {
+function newLayer(name, n, settings = {}) {
   return {
     id: uid('lay_'), name, opacity: 1, blend: 'normal', bypass: false, solo: false, volume: 1,
-    transitionMs: 0, transform: { x: 0, y: 0, scale: 1, rotate: 0 }, effects: [], mask: 'none',
+    mainOut: true, auxOutputs: [], // routage : composition principale et/ou sorties précises
+    transitionMs: settings.defaultLayerTransitionMs || 0, transform: { x: 0, y: 0, scale: 1, rotate: 0 }, effects: [], mask: 'none',
     clips: Array(n).fill(null),
   };
 }
@@ -48,6 +49,8 @@ export function normalizeComp(comp, cues) {
     l.effects = sanitizeEffects(l.effects);
     if (!BLENDS.includes(l.blend)) l.blend = 'normal';
     if (!MASKS.includes(l.mask)) l.mask = 'none';
+    l.mainOut = l.mainOut !== false;
+    l.auxOutputs = Array.isArray(l.auxOutputs) ? l.auxOutputs.map(String).slice(0, 32) : [];
   }
   comp.master ??= 1;
   comp.clickerColumns ??= true;
@@ -64,7 +67,7 @@ export function compDispatch(store, a) {
 
   switch (a.type) {
     case 'comp.layer.add': {
-      const l = newLayer(a.name || `Calque ${comp.layers.length + 1}`, comp.columns.length);
+      const l = newLayer(a.name || `Calque ${comp.layers.length + 1}`, comp.columns.length, s.settings);
       comp.layers.push(l);
       store.emit();
       return { ok: true, id: l.id };
@@ -83,6 +86,8 @@ export function compDispatch(store, a) {
       if (p.transitionMs != null) l.transitionMs = num(p.transitionMs, 0, 0, 10000);
       if (p.transform) l.transform = sanitizeTransform({ ...l.transform, ...p.transform });
       if (p.effects) l.effects = sanitizeEffects(p.effects);
+      if (p.mainOut != null) l.mainOut = !!p.mainOut;
+      if (Array.isArray(p.auxOutputs)) l.auxOutputs = p.auxOutputs.map(String).filter((id) => s.outputs.some((o) => o.id === id));
       break;
     }
     case 'comp.layer.remove': {
