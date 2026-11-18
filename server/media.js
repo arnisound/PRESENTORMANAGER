@@ -64,28 +64,35 @@ export async function pdfPageCount(file) {
   return n;
 }
 
+// Lecture d'un .pptx : diapositives dans l'ordre réel du diaporama.
+function openPptx(file) {
+  const zip = new AdmZip(file);
+  const read = (p) => zip.getEntry(p)?.getData().toString('utf8') || '';
+  const rels = (p) => {
+    const dir = path.posix.dirname(p);
+    const relFile = path.posix.join(dir, '_rels', path.posix.basename(p) + '.rels');
+    const map = {};
+    for (const m of read(relFile).matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = /Id="([^"]+)"/.exec(m[0])?.[1];
+      const target = /Target="([^"]+)"/.exec(m[0])?.[1];
+      const type = /Type="([^"]+)"/.exec(m[0])?.[1] || '';
+      const external = /TargetMode="External"/.test(m[0]);
+      if (id && target) map[id] = { target: external ? target : path.posix.normalize(path.posix.join(dir, target)), type, external };
+    }
+    return map;
+  };
+  const presXml = read('ppt/presentation.xml');
+  const presRels = rels('ppt/presentation.xml');
+  const slides = [...presXml.matchAll(/<p:sldId\b[^>]*r:id="([^"]+)"/g)].map((m) => presRels[m[1]]?.target).filter(Boolean);
+  const size = /<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"/.exec(presXml);
+  return { zip, read, rels, slides, cx: size ? +size[1] : 12192000, cy: size ? +size[2] : 6858000 };
+}
+
 // Notes du présentateur d'un .pptx, dans l'ordre réel des diapositives.
 export function pptxNotes(file) {
   try {
-    const zip = new AdmZip(file);
-    const read = (p) => zip.getEntry(p)?.getData().toString('utf8') || '';
-    const rels = (p) => {
-      const dir = path.posix.dirname(p);
-      const relFile = path.posix.join(dir, '_rels', path.posix.basename(p) + '.rels');
-      const map = {};
-      for (const m of read(relFile).matchAll(/<Relationship\b[^>]*>/g)) {
-        const id = /Id="([^"]+)"/.exec(m[0])?.[1];
-        const target = /Target="([^"]+)"/.exec(m[0])?.[1];
-        const type = /Type="([^"]+)"/.exec(m[0])?.[1] || '';
-        if (id && target) map[id] = { target: path.posix.normalize(path.posix.join(dir, target)), type };
-      }
-      return map;
-    };
-    const presRels = rels('ppt/presentation.xml');
-    const ids = [...read('ppt/presentation.xml').matchAll(/<p:sldId\b[^>]*r:id="([^"]+)"/g)].map((m) => m[1]);
-    return ids.map((rid) => {
-      const slide = presRels[rid]?.target;
-      if (!slide) return '';
+    const { read, rels, slides } = openPptx(file);
+    return slides.map((slide) => {
       const noteRel = Object.values(rels(slide)).find((r) => r.type.endsWith('/notesSlide'));
       if (!noteRel) return '';
       const xml = read(noteRel.target);
@@ -97,6 +104,49 @@ export function pptxNotes(file) {
   } catch {
     return [];
   }
+}
+
+// Vidéos et sons intégrés : extraits du .pptx avec leur position sur la diapo,
+// pour être rejoués par-dessus l'image de la diapositive.
+export function pptxMedia(file, mediaDir, mediaId) {
+  const out = [];
+  try {
+    const { zip, read, rels, slides, cx, cy } = openPptx(file);
+    slides.forEach((slide, si) => {
+      const xml = read(slide);
+      const r = rels(slide);
+      for (const m of xml.matchAll(/<p:pic>([\s\S]*?)<\/p:pic>/g)) {
+        const pic = m[1];
+        const isVideo = /<a:videoFile\b/.test(pic), isAudio = /<a:audioFile\b/.test(pic);
+        if (!isVideo && !isAudio) continue;
+        const embedId = /<p14:media\b[^>]*r:embed="([^"]+)"/.exec(pic)?.[1];
+        const linkId = /<a:(?:video|audio)File\b[^>]*r:link="([^"]+)"/.exec(pic)?.[1];
+        const rel = r[embedId] || r[linkId];
+        if (!rel || rel.external) continue; // les médias liés à l'extérieur ne sont pas dans le fichier
+        const entry = zip.getEntry(rel.target);
+        if (!entry) continue;
+        const spid = /<p:cNvPr\b[^>]*\bid="(\d+)"/.exec(pic)?.[1];
+        const off = /<a:off x="(-?\d+)" y="(-?\d+)"/.exec(pic);
+        const ext = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(pic);
+        // Réglages de lecture dans la chronologie de la diapo (volume, muet, boucle).
+        const node = [...xml.matchAll(/<p:cMediaNode\b([^>]*)>([\s\S]*?)<\/p:cMediaNode>/g)].find((n) => n[2].includes(`spid="${spid}"`));
+        const vol = node && /vol="(\d+)"/.exec(node[1]);
+        const name = `${mediaId}_s${si + 1}_${out.length + 1}${path.extname(rel.target).toLowerCase() || '.mp4'}`;
+        fs.writeFileSync(path.join(mediaDir, name), entry.getData());
+        out.push({
+          slide: si + 1,
+          kind: isVideo ? 'video' : 'audio',
+          file: name,
+          x: off ? +off[1] / cx : 0, y: off ? +off[2] / cy : 0,
+          w: ext ? +ext[1] / cx : 1, h: ext ? +ext[2] / cy : 1,
+          volume: vol ? Math.min(1, +vol[1] / 100000) : 1,
+          muted: !!(node && /mute="1"/.test(node[1])),
+          loop: !!(node && /repeatCount="indefinite"/.test(node[2])),
+        });
+      }
+    });
+  } catch { /* fichier inhabituel : on garde au moins les images */ }
+  return out;
 }
 
 function decode(s) {
@@ -111,7 +161,10 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
       media.kind = 'slides';
       media.status = 'converting';
       onUpdate();
-      if (/\.pptx$/i.test(media.name)) media.notes = pptxNotes(filePath);
+      if (/\.(pptx|ppsx)$/i.test(media.name)) {
+        media.notes = pptxNotes(filePath);
+        media.videos = pptxMedia(filePath, mediaDir, media.id);
+      }
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'presentor-'));
       const src = path.join(work, 'source' + path.extname(media.name).toLowerCase());
       fs.copyFileSync(filePath, src);

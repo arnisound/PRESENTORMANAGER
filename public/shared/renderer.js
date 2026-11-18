@@ -69,6 +69,20 @@ async function cameraStream(cue) {
   return streams.get(key);
 }
 
+// ---------------------------------------------------------------- capture de fenêtre (app desktop)
+const captures = new Map();
+function captureStream(sourceId) {
+  if (!captures.has(sourceId)) {
+    const p = navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxWidth: 3840, maxHeight: 2160, maxFrameRate: 60 } },
+    });
+    captures.set(sourceId, p);
+    p.catch(() => captures.delete(sourceId));
+  }
+  return captures.get(sourceId);
+}
+
 // ---------------------------------------------------------------- lien de participation
 let infoPromise;
 export function joinUrl(state) {
@@ -95,6 +109,15 @@ export function describe(state, pos, { blackout = false, logo = false, depth = 0
   switch (cue.type) {
     case 'slides':
       if (!media || media.status !== 'ready') return { ...base, key: 'wait:' + cue.id, type: 'placeholder', label: media?.status === 'error' ? 'Erreur : ' + media.error : 'Conversion en cours…' };
+      {
+        // PowerPoint natif : capture continue de la fenêtre du diaporama (animations comprises).
+        // Ailleurs (navigateur, preview d'une autre diapo) : image de la diapo.
+        const nat = state.live?.native;
+        if (cue.engine === 'powerpoint' && window.presentor?.isDesktop && nat?.cueId === cue.id && nat.sourceId && !nat.error && pos.slide === nat.slide) {
+          const cr = cue.captureCrop || {};
+          return { ...base, type: 'capture', key: `cap:${cue.id}:${nat.sourceId}:${cr.t || 0}:${cr.r || 0}:${cr.b || 0}:${cr.l || 0}`, sourceId: nat.sourceId, crop: cr };
+        }
+      }
       return { ...base, key: `${cue.id}:${pos.slide}:${media.file}`, src: '/media/' + media.file, slide: pos.slide, pages: media.pages };
     case 'video':
     case 'audio':
@@ -275,9 +298,30 @@ class Layer {
         const src = await pageCanvas(d.src, d.slide, w, h);
         const c = document.createElement('canvas');
         c.width = src.width; c.height = src.height;
-        c.className = 'fit';
         c.getContext('2d').drawImage(src, 0, 0);
-        el.append(c);
+        // Boîte aux proportions exactes de la diapo : les vidéos intégrées s'y placent en %.
+        const box = document.createElement('div');
+        box.className = 'slide-box';
+        box.style.setProperty('--ar', src.width / src.height);
+        box.append(c);
+        el.append(box);
+        const vids = (d.media?.videos || []).filter((v) => v.slide === d.slide);
+        this.slideMedia = vids.map((v) => {
+          const m = document.createElement(v.kind === 'audio' ? 'audio' : 'video');
+          m.src = '/media/' + v.file;
+          m.preload = 'auto';
+          m.playsInline = true;
+          m.loop = !!v.loop;
+          m.muted = !!monitor || !this.stage.opts.audio || v.muted;
+          m.volume = v.volume ?? 1;
+          if (v.kind !== 'audio') {
+            m.className = 'slide-video';
+            Object.assign(m.style, { left: v.x * 100 + '%', top: v.y * 100 + '%', width: v.w * 100 + '%', height: v.h * 100 + '%' });
+            box.append(m);
+          }
+          return m;
+        });
+        await Promise.race([Promise.all(this.slideMedia.map((m) => new Promise((r) => (m.readyState >= 2 ? r() : m.addEventListener('loadeddata', r, { once: true }))))), new Promise((r) => setTimeout(r, 2500))]);
         // Préchargement des diapositives voisines.
         if (!monitor) for (const n of [d.slide + 1, d.slide + 2, d.slide - 1]) if (n >= 1 && n <= d.pages) pageCanvas(d.src, n, w, h).catch(() => {});
         return;
@@ -341,6 +385,18 @@ class Layer {
         // On attend que tous les calques soient prêts (avec un plafond) avant d'afficher la scène.
         await Promise.race([Promise.all([...this.children.values()].map((c) => c.stage.whenReady())), new Promise((r) => setTimeout(r, 3500))]);
         return;
+      case 'capture': {
+        const v = document.createElement('video');
+        v.autoplay = true; v.muted = true; v.playsInline = true;
+        const c = d.crop || {};
+        // Recadrage (barre de titre, bords de la fenêtre PowerPoint) en % de la capture.
+        if (c.t || c.r || c.b || c.l) v.style.objectViewBox = `inset(${c.t || 0}% ${c.r || 0}% ${c.b || 0}% ${c.l || 0}%)`;
+        el.append(v);
+        v.srcObject = await captureStream(d.sourceId);
+        await v.play().catch(() => {});
+        if (v.readyState < 2) await new Promise((r) => { v.addEventListener('loadeddata', r, { once: true }); setTimeout(r, 2000); });
+        return;
+      }
       case 'ndi': {
         const api = window.presentor?.ndi;
         if (!api) { el.innerHTML = `<div class="placeholder"><b>NDI : ${esc(d.cue.source?.name || 'aucune source')}</b><small>Réception NDI disponible dans l'app Mac / PC</small></div>`; return; }
@@ -399,7 +455,34 @@ class Layer {
     });
   }
 
-  activate() { this.active = true; this.syncMedia(); }
+  activate() {
+    this.active = true;
+    this.syncMedia();
+    if (this.slideMedia?.length && this.desc.cue?.slideVideos !== 'manual') {
+      this.builtAt = this.stage.opts.client ? this.stage.opts.client.now() : Date.now();
+      this.syncSlideMedia();
+      this.slideTimer = setInterval(() => this.syncSlideMedia(), 300);
+    }
+  }
+
+  // Vidéos intégrées à la diapo : démarrent à l'affichage de la diapo, calées
+  // sur l'horloge du serveur pour rester synchrones entre les écrans.
+  syncSlideMedia() {
+    const st = this.stage.state, client = this.stage.opts.client;
+    const live = st?.live?.program;
+    const onAir = live && live.cueId === this.desc.cue.id && live.slide === this.desc.slide && !st.live.blackout;
+    const start = onAir ? st.live.slideAt : this.builtAt;
+    const now = client ? client.now() : Date.now();
+    for (const m of this.slideMedia) {
+      const dur = m.duration || Infinity;
+      let t = (now - start) / 1000;
+      if (t < 0) continue;
+      if (m.loop && isFinite(dur)) t %= dur;
+      else if (t >= dur) { if (!m.paused) m.pause(); continue; }
+      if (Math.abs(m.currentTime - t) > 0.5) m.currentTime = t;
+      if (m.paused) m.play().catch(() => { m.muted = true; m.play().catch(() => {}); });
+    }
+  }
 
   update(desc, state) {
     this.desc = desc;
@@ -492,6 +575,8 @@ class Layer {
 
   destroy() {
     clearInterval(this.syncTimer);
+    clearInterval(this.slideTimer);
+    for (const m of this.slideMedia || []) { m.pause(); m.removeAttribute('src'); m.load(); }
     for (const ch of this.children?.values() || []) ch.stage.destroy();
     if (this.ndiHandle) window.presentor?.ndi?.detach(this.ndiHandle);
     if (this.video) { this.video.pause(); this.video.removeAttribute('src'); this.video.srcObject = null; this.video.load(); }

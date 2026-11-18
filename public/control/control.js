@@ -192,6 +192,22 @@ function tabCue() {
     const kinds = c.type === 'slides' ? ['slides'] : [c.type];
     h += field('Média', `<select ${f('mediaId')}>${sel([['', '—'], ...S.media.filter((m) => kinds.includes(m.kind)).map((m) => [m.id, m.name])], c.mediaId)}</select>`);
     if (media?.notes?.some(Boolean)) h += `<p class="hint">Notes du présentateur importées depuis le PowerPoint (${media.notes.filter(Boolean).length} diapos).</p>`;
+    if (c.type === 'slides') {
+      const vids = media?.videos?.length || 0;
+      const native = S.nativeInfo?.available;
+      const isPpt = /\.(pptx|ppt|pps|ppsx)$/i.test(media?.source || '');
+      h += field('Rendu', `<select ${f('engine')}>${sel([['', 'Images' + (vids ? ` + ${vids} vidéo(s) intégrée(s)` : '') + ' — fonctionne partout'], ['powerpoint', 'PowerPoint natif — animations et transitions']], c.engine || '')}</select>`);
+      if (c.engine === 'powerpoint') {
+        const nat = S.live.native?.cueId === c.id ? S.live.native : null;
+        h += `<div class="box"><span class="hint">${!desktop ? 'Le mode natif fonctionne dans l\'app Mac / PC où PowerPoint est installé ; ailleurs les images sont utilisées.'
+          : !native ? 'PowerPoint n\'a pas été détecté sur cet ordinateur : les images sont utilisées.'
+          : !isPpt ? 'Ce média n\'est pas un fichier PowerPoint (PDF) : réimportez le .pptx.'
+          : `${esc(S.nativeInfo.app)} pilote le diaporama : la télécommande déclenche les animations une à une.`}</span>
+          ${nat ? `<span class="hint">${nat.error ? 'Erreur : ' + esc(nat.error) : `Diapo ${nat.slide}/${nat.total || '?'}${nat.clicks ? ` · animation ${nat.click}/${nat.clicks}` : ''}${nat.sourceId ? ' · fenêtre capturée' : ' · fenêtre introuvable'}`}</span>` : ''}
+          <div class="field"><span>Recadrage de la capture % (haut, droite, bas, gauche) — retire la barre de titre</span><div class="grid4">
+          ${['t', 'r', 'b', 'l'].map((k) => `<input type="number" step="0.5" min="0" max="40" data-crop-k="${k}" value="${(c.captureCrop || {})[k] || 0}">`).join('')}</div></div></div>`;
+      } else if (vids) h += `<p class="hint">Les vidéos intégrées au PowerPoint sont rejouées à leur place sur la diapo.</p>`;
+    }
   }
   if (c.type === 'video' || c.type === 'audio') {
     h += `<div class="box">${check('Lecture automatique au passage à l\'antenne', `${f('autoplay')} data-type="bool-default-true"`, c.autoplay !== false)}
@@ -425,6 +441,9 @@ document.addEventListener('change', (e) => {
     const patch = { [k]: v === '' && k.endsWith('Id') ? null : v };
     if (k === 'deviceId') patch.deviceLabel = cameras.find((d) => d.deviceId === v)?.label || '';
     send({ type: 'cue.update', id: selectedId, patch });
+  } else if (el.dataset.cropK) {
+    const cue = cueById(selectedId);
+    send({ type: 'cue.update', id: selectedId, patch: { captureCrop: { ...(cue.captureCrop || {}), [el.dataset.cropK]: Math.max(0, Math.min(40, Number(el.value) || 0)) } } });
   } else if (el.dataset.ndiSource !== undefined) {
     const src = (S.ndi?.sources || []).find((x) => x.name === el.value) || (el.value ? { name: el.value } : null);
     send({ type: 'cue.update', id: selectedId, patch: { source: src, name: src ? src.name : cueById(selectedId).name } });

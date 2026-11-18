@@ -132,6 +132,4 @@ contextBridge.exposeInMainWorld('presentor', {
   closeOutput: (id) => ipcRenderer.invoke('output:close', id),
   identifyDisplays: () => ipcRenderer.invoke('displays:identify'),
   onDisplaysChanged: (fn) => ipcRenderer.on('displays:changed', (e, list) => fn(list)),
-  // PowerPoint natif : identifiant de capture de la fenêtre du diaporama
-  captureSource: (cueId) => ipcRenderer.invoke('ppt:capture-source', cueId),
 });

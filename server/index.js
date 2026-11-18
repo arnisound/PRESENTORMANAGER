@@ -99,6 +99,8 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
 
   // --- WebSocket --------------------------------------------------------
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 1024 * 1024 });
+  // Les erreurs d'écoute (port occupé…) sont gérées par server.listen : on évite le plantage.
+  wss.on('error', () => {});
   const clients = new Set();
 
   const counters = () => {

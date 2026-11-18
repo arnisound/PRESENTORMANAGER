@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { NdiOutputs } = require('./ndi-out.cjs');
+const { NativeDeck } = require('./ppt.cjs');
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -145,6 +146,9 @@ app.whenReady().then(async () => {
     notify();
   });
   screen.on('display-metrics-changed', notify);
+
+  // PowerPoint natif (animations conservées) si PowerPoint est installé.
+  server.store.native = await NativeDeck.create({ server, mediaDir: path.join(dataDir, 'media') });
 
   // Sorties publiées en NDI : suivies à chaque changement d'état (et à l'ouverture des fenêtres).
   ndiOut = new NdiOutputs({ server, getScreenWindow: (id) => outputs.get(id) });

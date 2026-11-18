@@ -117,3 +117,19 @@ test('scène : pas de scène imbriquée, calques nettoyés à la suppression', (
   s.dispatch({ type: 'cue.remove', id: a });
   assert.equal(s.cue(sc1).layers.length, 0);
 });
+
+test('PowerPoint natif : la navigation est déléguée, la fin du diaporama enchaîne', () => {
+  const { s, a, b } = fresh();
+  const calls = [];
+  s.native = { handles: (c) => c.id === a, show: (c, n) => calls.push(['show', n]), step: (c, d) => calls.push(['step', d]), goto: (c, n) => calls.push(['goto', n]) };
+  s.dispatch({ type: 'program.set', cueId: a });
+  nav(s, 'next');
+  assert.deepEqual(calls, [['show', 1], ['step', 1]]);
+  assert.equal(s.state.live.program.slide, 1, 'la diapo ne change qu\'au retour de PowerPoint');
+  assert.equal(s.dispatch({ type: 'native.status', cueId: a, slide: 2 }).error, 'forbidden', 'réservé au pilote');
+  s.dispatch({ type: 'native.status', cueId: a, slide: 2, click: 1, clicks: 3, sourceId: 'window:42' }, 'system');
+  assert.equal(s.state.live.program.slide, 2);
+  assert.equal(s.state.live.native.sourceId, 'window:42');
+  s.dispatch({ type: 'native.status', cueId: a, slide: 3, ended: true }, 'system');
+  assert.equal(s.state.live.program.cueId, b, 'fin du diaporama → élément suivant');
+});

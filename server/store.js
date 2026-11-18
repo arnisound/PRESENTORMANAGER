@@ -139,6 +139,19 @@ export class Store {
       live.preview = after ? { cueId: after.id, slide: 1 } : live.preview;
     }
     if (!pos) live.playback = null;
+    // Prévient le pilote PowerPoint natif (ouverture / positionnement du diaporama).
+    const target = pos && this.nativeTarget(this.cue(pos.cueId));
+    if (target && pos.cueId !== prevCue) this.native.show(target, pos.slide);
+  }
+
+  // Présentation pilotée par PowerPoint natif : l'élément lui-même, ou le calque principal d'une scène.
+  nativeTarget(cue) {
+    if (!cue || !this.native) return null;
+    if (cue.type === 'scene') {
+      const main = mainLayer(cue, this.state.cues);
+      cue = main && this.cue(main.cueId);
+    }
+    return cue && this.native.handles(cue) ? cue : null;
   }
 
   // --- actions ----------------------------------------------------------
@@ -214,6 +227,9 @@ export class Store {
         if (this._lastNav && now - this._lastNav < 120) return { ok: true };
         this._lastNav = now;
         if (s.live.blackout) { s.live.blackout = false; break; }
+        // PowerPoint natif : c'est PowerPoint qui avance (animations, builds, transitions).
+        const nat = this.nativeTarget(this.cue(s.live.program?.cueId));
+        if (nat) { this.native.step(nat, a.type === 'next' ? 1 : -1); return { ok: true }; }
         const pos = this.stepFrom(s.live.program, a.type === 'next' ? 1 : -1);
         if (pos) this.setProgram(pos);
         break;
@@ -222,6 +238,22 @@ export class Store {
         if (!s.live.program) return { error: 'rien au programme' };
         s.live.program = { ...s.live.program, slide: clampSlide(this, s.live.program.cueId, a.slide) };
         s.live.slideAt = Date.now() + 150;
+        const nat = this.nativeTarget(this.cue(s.live.program.cueId));
+        if (nat) this.native.goto(nat, s.live.program.slide);
+        break;
+      }
+      case 'native.status': {
+        // Retour du pilote PowerPoint (app desktop) : position réelle du diaporama.
+        if (role !== 'system') return { error: 'forbidden' };
+        const cue = this.cue(a.cueId);
+        s.live.native = { cueId: a.cueId, sourceId: a.sourceId ?? (s.live.native?.cueId === a.cueId ? s.live.native.sourceId : null),
+          slide: a.slide || 1, click: a.click ?? 0, clicks: a.clicks ?? 0, total: a.total || 0, error: a.error || null };
+        const p = s.live.program;
+        const progCue = this.cue(p?.cueId);
+        if (!cue || this.nativeTarget(progCue)?.id !== a.cueId) break;
+        if (a.ended) { const nx = this.stepFrom({ cueId: progCue.id, slide: this.slideCount(progCue) }, 1); if (nx) this.setProgram(nx); }
+        else if (a.begin) { const pv = this.stepFrom({ cueId: progCue.id, slide: 1 }, -1); if (pv) this.setProgram(pv); }
+        else if (a.slide && a.slide !== p.slide) { s.live.program = { ...p, slide: a.slide }; s.live.slideAt = Date.now() + 150; }
         break;
       }
       case 'blackout.toggle':

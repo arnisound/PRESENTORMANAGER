@@ -59,3 +59,11 @@ blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; 
 .scene-inner[data-fit="fill"] .layer .fit { object-fit: fill; width: 100%; height: 100%; }
 .stage-ovscene { position: absolute; inset: 0; pointer-events: none; }
 .stage-ovscene > .stage { position: absolute; inset: 0; }
+
+/* Diapositive + vidéos intégrées */
+.slide-box { position: relative; aspect-ratio: var(--ar); width: min(100cqw, calc(var(--ar) * 100cqh)); flex: none; }
+.slide-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.slide-video { position: absolute; object-fit: contain; background: transparent; }
+.scene-inner[data-fit="cover"] .slide-box { width: max(100cqw, calc(var(--ar) * 100cqh)); }
+.scene-inner[data-fit="fill"] .slide-box { width: 100cqw; height: 100cqh; aspect-ratio: auto; }
+.layer-capture video { width: 100%; height: 100%; object-fit: contain; }

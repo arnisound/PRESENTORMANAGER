@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-imp
 WORKDIR /app
 COPY package.json package-lock.json ./
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --omit=optional
 COPY server ./server
 COPY public ./public
 ENV PORT=4517 DATA_DIR=/data
