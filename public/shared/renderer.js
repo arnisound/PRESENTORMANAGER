@@ -113,7 +113,7 @@ export function describe(state, pos, { blackout = false, logo = false, depth = 0
         // PowerPoint natif : capture continue de la fenêtre du diaporama (animations comprises).
         // Ailleurs (navigateur, preview d'une autre diapo) : image de la diapo.
         const nat = state.live?.native;
-        if (cue.engine === 'powerpoint' && window.presentor?.isDesktop && nat?.cueId === cue.id && nat.sourceId && !nat.error && pos.slide === nat.slide) {
+        if (cue.engine === 'powerpoint' && window.presenthor?.isDesktop && nat?.cueId === cue.id && nat.sourceId && !nat.error && pos.slide === nat.slide) {
           const cr = cue.captureCrop || {};
           return { ...base, type: 'capture', key: `cap:${cue.id}:${nat.sourceId}:${cr.t || 0}:${cr.r || 0}:${cr.b || 0}:${cr.l || 0}`, sourceId: nat.sourceId, crop: cr };
         }
@@ -398,7 +398,7 @@ class Layer {
         return;
       }
       case 'ndi': {
-        const api = window.presentor?.ndi;
+        const api = window.presenthor?.ndi;
         if (!api) { el.innerHTML = `<div class="placeholder"><b>NDI : ${esc(d.cue.source?.name || 'aucune source')}</b><small>Réception NDI disponible dans l'app Mac / PC</small></div>`; return; }
         if (!d.cue.source?.name) { el.innerHTML = '<div class="placeholder">Choisissez une source NDI</div>'; return; }
         const c = document.createElement('canvas');
@@ -578,7 +578,7 @@ class Layer {
     clearInterval(this.slideTimer);
     for (const m of this.slideMedia || []) { m.pause(); m.removeAttribute('src'); m.load(); }
     for (const ch of this.children?.values() || []) ch.stage.destroy();
-    if (this.ndiHandle) window.presentor?.ndi?.detach(this.ndiHandle);
+    if (this.ndiHandle) window.presenthor?.ndi?.detach(this.ndiHandle);
     if (this.video) { this.video.pause(); this.video.removeAttribute('src'); this.video.srcObject = null; this.video.load(); }
     this.el.remove();
   }

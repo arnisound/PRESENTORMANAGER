@@ -5,7 +5,7 @@ import { openSceneEditor } from '/control/scene-editor.js';
 import { openMappingEditor } from '/control/mapping-editor.js';
 
 const $ = (s, r = document) => r.querySelector(s);
-const desktop = window.presentor || null; // API exposée par l'app Mac/PC
+const desktop = window.presenthor || null; // API exposée par l'app Mac/PC
 const ICONS = { slides: '📑', video: '🎬', image: '🖼', audio: '🎵', web: '🌐', camera: '🎥', ndi: '📡', scene: '🧩', poll: '📊', qa: '💬', title: '🅃', black: '⬛' };
 const SOURCE_LABELS = { program: 'Programme', clean: 'Programme sans habillage', preview: 'Preview', presenter: 'Retour présentateur', multiview: 'Multiview régie' };
 
@@ -23,7 +23,7 @@ const send = async (action) => {
   return r;
 };
 bindClicker(client);
-window.__presentorAction = (a) => send(a); // télécommande globale (app desktop)
+window.__presenthorAction = (a) => send(a); // télécommande globale (app desktop)
 
 const pvwStage = new Stage($('#pvw-stage'), { client, monitor: true });
 const pgmStage = new Stage($('#pgm-stage'), { client, monitor: true, reportEnded: true });
@@ -37,7 +37,7 @@ if (desktop) {
 // ------------------------------------------------------------------ rendu
 function onState(state) {
   S = state;
-  document.documentElement.style.setProperty('--accent', state.settings.accent);
+  for (const el of [$('#pvw-stage'), $('#pgm-stage')]) el.style.setProperty('--accent', state.settings.accent);
   if (selectedId && !S.cues.some((c) => c.id === selectedId)) selectedId = null;
   if (!selectedId) selectedId = S.live.preview?.cueId || S.cues[0]?.id || null;
 
@@ -271,7 +271,7 @@ function tabOutputs() {
       ${field('Contenu', `<select data-out-field="source">${sel(sources, o.source)}</select>`)}
       ${check('Sortie audio (son des vidéos)', 'data-out-field="audio" data-type="bool"', o.audio)}
       ${desktop?.ndi ? `<div class="row wrap">${check('Publier en NDI', 'data-out-field="ndi" data-type="bool"', o.ndi)}
-        <input data-out-field="ndiName" value="${esc(o.ndiName || '')}" placeholder="Presentor - ${esc(o.name)}" style="flex:1">
+        <input data-out-field="ndiName" value="${esc(o.ndiName || '')}" placeholder="PresenThor - ${esc(o.name)}" style="flex:1">
         ${o.ndi ? `<span class="hint">${S.ndiOut?.[o.id] ? esc(S.ndiOut[o.id]) : 'démarrage…'}</span>` : ''}</div>` : ''}
       <div class="row wrap"><button class="btn sm" data-act="out-mapping" data-id="${o.id}">Mapping…</button>
         ${o.zones?.length ? `<span class="tag ${o.mapping ? 'pvw' : 'flag'}">${o.zones.length} zone${o.zones.length > 1 ? 's' : ''}${o.mapping ? '' : ' (désactivé)'}</span>` : ''}
@@ -356,7 +356,7 @@ function tabSettings() {
     <div class="box"><div class="row"><img class="qr" data-qr="remote" alt=""><div><b>Télécommande smartphone</b><div class="link"></div>
       <p class="hint">Scannez avec le téléphone du présentateur ou du régisseur (même réseau).</p></div></div></div>
     <div class="box"><b>Accès réseau</b>${(info.lan || []).map((u) => `<div class="link">${esc(u)}</div>`).join('') || '<span class="hint">Aucune interface réseau détectée</span>'}
-      <span class="hint">${info.pinRequired ? 'Régie protégée par code PIN.' : 'Régie non protégée : définissez PRESENTOR_PIN pour un usage en ligne.'}</span>
+      <span class="hint">${info.pinRequired ? 'Régie protégée par code PIN.' : 'Régie non protégée : définissez PRESENTHOR_PIN pour un usage en ligne.'}</span>
       <span class="hint">Conversion PowerPoint : ${info.converter ? 'disponible (LibreOffice)' : 'LibreOffice non installé — importez vos présentations en PDF'}.</span></div>
     <div class="row"><a class="btn" href="/api/export${getPin() ? '?pin=' + encodeURIComponent(getPin()) : ''}">Exporter le show</a></div>`;
 }

@@ -32,7 +32,7 @@ function render(state) {
   if (!outputId) return renderPicker(state);
   const out = state.outputs.find((o) => o.id === outputId);
   if (!out) { app.innerHTML = '<div class="picker"><h1>Sortie supprimée</h1><p><a href="/output/">Choisir une autre sortie</a></p></div>'; view = null; return; }
-  document.title = out.name + ' — Presentor';
+  document.title = out.name + ' — PresenThor';
   const mapped = !!(out.mapping && out.zones?.length);
   const source = mapped ? 'mapping' : out.source;
   if (!view || view.source !== source || view.audio !== !!out.audio) {
@@ -218,7 +218,7 @@ function multiView(opts) {
 
 function renderPicker(state) {
   view = null;
-  app.innerHTML = `<div class="picker"><h1>Choisir la sortie de cet écran</h1>
+  app.innerHTML = `<div class="picker"><img class="picker-logo" src="/brand/logo-192.png" alt="PresenThor"><h1>Choisir la sortie de cet écran</h1>
     <p>Ouvrez cette page sur l'ordinateur relié à l'écran, puis passez en plein écran (double-clic ou F11).</p>
     ${state.outputs.map((o) => `<a href="?id=${encodeURIComponent(o.id)}">${esc(o.name)} <small>${esc(o.source)}</small></a>`).join('')}</div>`;
 }

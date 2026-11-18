@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0a0a0b">
 <title>Participer</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <style>
-  :root { --accent: #3b82f6; color-scheme: light; }
+  :root { --accent: #c48626; --on-accent: #111; color-scheme: light; }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #0f172a; }
-  header { background: #0f172a; color: #fff; padding: 16px 20px; font-weight: 700; font-size: 17px; }
+  header { background: #0a0a0b; color: #fff; padding: 12px 20px; font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 12px; }
+  header img { width: 36px; height: 36px; }
+  footer { text-align: center; color: #94a3b8; font-size: 12px; padding: 0 0 24px; }
+  footer b { color: #c48626; }
   main { max-width: 560px; margin: 0 auto; padding: 18px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
   .card { background: #fff; border-radius: 14px; padding: 18px; box-shadow: 0 1px 3px rgba(15,23,42,.08); display: flex; flex-direction: column; gap: 12px; }
   h2 { margin: 0; font-size: 20px; line-height: 1.3; }
@@ -22,7 +27,7 @@
   .stars button.on { color: #f59e0b; border-color: #f59e0b; }
   input[type=text], textarea { width: 100%; font: inherit; font-size: 16px; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; }
   textarea { min-height: 90px; resize: vertical; }
-  .send { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  .send { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 700; cursor: pointer; }
   .send:disabled { opacity: .5; }
   .ok { color: #15803d; font-weight: 600; }
   .muted { color: #64748b; }
@@ -31,7 +36,7 @@
 </style>
 </head>
 <body>
-<header id="title">Participer</header>
+<header><img src="/brand/logo-192.png" alt=""><span id="title">Participer</span></header>
 <main>
   <section class="card" id="poll"><p class="muted">Aucun vote en cours. Cette page se met à jour toute seule.</p></section>
   <section class="card" id="qa" hidden>
@@ -42,19 +47,24 @@
     <div id="q-ok" class="ok" hidden>Merci, votre question a été transmise.</div>
   </section>
 </main>
+<footer>Propulsé par <b>PresenThor</b></footer>
 <script type="module">
 import { Client, esc } from '/shared/client.js';
 const $ = (s) => document.getElementById(s);
 // Identifiant anonyme et stable : un vote par appareil (modifiable).
 let voter;
-try { voter = localStorage.getItem('presentor.voter') || crypto.randomUUID(); localStorage.setItem('presentor.voter', voter); } catch { voter = Math.random().toString(36).slice(2); }
-const mine = (id) => { try { return JSON.parse(localStorage.getItem('presentor.vote.' + id)); } catch { return null; } };
-const keep = (id, v) => { try { localStorage.setItem('presentor.vote.' + id, JSON.stringify(v)); } catch {} };
+try { voter = localStorage.getItem('presenthor.voter') || crypto.randomUUID(); localStorage.setItem('presenthor.voter', voter); } catch { voter = Math.random().toString(36).slice(2); }
+const mine = (id) => { try { return JSON.parse(localStorage.getItem('presenthor.vote.' + id)); } catch { return null; } };
+const keep = (id, v) => { try { localStorage.setItem('presenthor.vote.' + id, JSON.stringify(v)); } catch {} };
 let pollId = null, draft = null, last = null;
 const client = new Client({ role: 'audience', onPublic: (s) => { last = s; render(s); } });
 
 function render(s) {
-  document.documentElement.style.setProperty('--accent', s.accent || '#3b82f6');
+  const acc = s.accent || '#c48626';
+  document.documentElement.style.setProperty('--accent', acc);
+  // Texte noir ou blanc selon la clarté de la couleur du show (lisibilité des boutons).
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(acc.slice(i, i + 2), 16) / 255);
+  document.documentElement.style.setProperty('--on-accent', 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#111' : '#fff');
   $('title').textContent = s.show?.name || 'Participer';
   document.title = s.show?.name || 'Participer';
   $('qa').hidden = !s.qaOpen;

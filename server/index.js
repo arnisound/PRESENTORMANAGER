@@ -1,4 +1,4 @@
-// Serveur Presentor : sert l'interface, les médias, et synchronise en temps réel
+// Serveur PresenThor : sert l'interface, les médias, et synchronise en temps réel
 // tous les écrans (régie, sorties, télécommandes, public) via WebSocket.
 // Utilisé tel quel en ligne (node server/start.js) et embarqué dans l'app desktop.
 import http from 'node:http';
@@ -25,7 +25,7 @@ export function lanAddresses() {
   return out;
 }
 
-export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = path.join(ROOT, 'data'), pin = process.env.PRESENTOR_PIN || '' } = {}) {
+export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = path.join(ROOT, 'data'), pin = process.env.PRESENTHOR_PIN || process.env.PRESENTOR_PIN || '' } = {}) {
   const store = new Store(dataDir);
   const stopNdi = startNdiDiscovery(store);
   const mediaDir = path.join(dataDir, 'media');
@@ -94,7 +94,7 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
 
   app.get('/api/export', (req, res) => {
     if (!authorized(req)) return res.status(401).end();
-    res.attachment(`${store.state.show.name || 'show'}.presentor.json`).json(store.state);
+    res.attachment(`${store.state.show.name || 'show'}.presenthor.json`).json(store.state);
   });
 
   // --- WebSocket --------------------------------------------------------

@@ -1,4 +1,6 @@
-# Presentor Manager
+<p align="center"><img src="public/brand/logo-512.png" width="220" alt="PresenThor"></p>
+
+# PresenThor
 
 Logiciel de diffusion pour événements : il gère sur grand écran les présentations PowerPoint, vidéos, images, visioconférences, sondages et questions du public. Il pilote plusieurs sorties vidéo et ne coupe pas l'image entre deux médias.
 
@@ -73,7 +75,7 @@ Ouvrez ensuite `http://localhost:4517/control/` pour la régie. Sur chaque ordin
 **Protéger la régie en ligne :**
 
 ```bash
-PRESENTOR_PIN=1234 npm start
+PRESENTHOR_PIN=1234 npm start
 ```
 
 Pour la conversion PowerPoint, installez [LibreOffice](https://www.libreoffice.org/). Sans LibreOffice, importez vos présentations au format PDF.
@@ -88,16 +90,16 @@ npm run dist:mac
 npm run dist:win
 ```
 
-Les installeurs sont produits dans `dist/`. Le `.dmg` doit être construit sur un Mac. Le `.exe` se construit de préférence sur Windows.
+Les installeurs sont produits dans `dist/`, avec l'icône PresenThor (`build/icon.png`, générée depuis `build/logo-source.webp`). Le `.dmg` doit être construit sur un Mac. Le `.exe` se construit de préférence sur Windows.
 
 ### En ligne avec Docker
 
 ```bash
-docker build -t presentor .
+docker build -t presenthor .
 ```
 
 ```bash
-docker run -p 4517:4517 -v presentor-data:/data -e PRESENTOR_PIN=1234 presentor
+docker run -p 4517:4517 -v presenthor-data:/data -e PRESENTHOR_PIN=1234 presenthor
 ```
 
 Placez un reverse-proxy HTTPS devant (WebSocket sur `/ws`). Renseignez l'URL publique dans *Réglages* : le QR code de vote pointera dessus.

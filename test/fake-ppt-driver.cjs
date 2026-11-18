@@ -1,4 +1,4 @@
-// Faux pilote PowerPoint pour les tests (PRESENTOR_PPT_DRIVER=test/fake-ppt-driver.cjs) :
+// Faux pilote PowerPoint pour les tests (PRESENTHOR_PPT_DRIVER=test/fake-ppt-driver.cjs) :
 // une fenêtre "PowerPoint Slide Show - fichier" avec 2 étapes d'animation par diapo.
 const { BrowserWindow } = require('electron');
 const path = require('node:path');

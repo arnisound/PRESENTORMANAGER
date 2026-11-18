@@ -1,6 +1,6 @@
 :root {
-  --bg: #0b0e14; --panel: #121722; --panel2: #1a2130; --line: #253045; --text: #e6e9ef; --muted: #8a94a7;
-  --accent: #3b82f6; --pgm: #e11d48; --pvw: #16a34a; --warn: #f59e0b;
+  --bg: #0a0a0b; --panel: #131315; --panel2: #1c1c20; --line: #2c2c33; --text: #e6e9ef; --muted: #8a94a7;
+  --accent: #c48626; --accent-hi: #dfa244; --pgm: #e11d48; --pvw: #16a34a; --warn: #f59e0b;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -14,7 +14,8 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: va
 .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
 .btn:hover { border-color: #3a4864; } .btn:active { transform: translateY(1px); }
 .btn.sm { padding: 3px 8px; font-size: 12px; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 .btn.danger.on, .btn.on { background: var(--pgm); border-color: var(--pgm); color: #fff; }
 .btn.danger { border-color: #7f1d1d; }
 .btn.ghost { background: none; border-color: transparent; }
@@ -26,8 +27,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 /* En-tête */
 .top { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #0e131c; }
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.logo-dot { width: 12px; height: 12px; border-radius: 3px; background: linear-gradient(135deg, var(--accent), var(--pgm)); flex: none; }
-.show-name { background: none !important; border: 0 !important; font-weight: 700; font-size: 15px; width: 300px !important; padding: 2px 4px !important; }
+.brand-logo { width: 30px; height: 30px; flex: none; }
+.brand-name { font-weight: 800; letter-spacing: .01em; color: var(--accent); font-size: 15px; white-space: nowrap; }
+.brand-sep { width: 1px; height: 20px; background: var(--line); }
+.show-name { background: none !important; border: 0 !important; font-weight: 600; font-size: 14px; width: 280px !important; padding: 2px 4px !important; }
 .conn { color: var(--pgm); font-size: 12px; } .conn.on { color: var(--pvw); }
 .clients { color: var(--muted); font-size: 12px; }
 .clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; }
@@ -125,7 +128,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .qr { width: 120px; height: 120px; background: #fff; border-radius: 6px; padding: 4px; }
 .link { word-break: break-all; color: #93c5fd; font-size: 12px; }
 
-.drop { position: fixed; inset: 0; background: rgba(59,130,246,.18); border: 3px dashed var(--accent); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; z-index: 100; pointer-events: none; }
+.drop { position: fixed; inset: 0; background: rgba(196,134,38,.16); border: 3px dashed var(--accent); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; z-index: 100; pointer-events: none; }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; z-index: 101; }
 
 @media (max-width: 1200px) { .layout { grid-template-columns: 220px minmax(0, 1fr) 300px; } }
@@ -150,7 +153,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .se-stage { position: absolute; inset: 0; background: transparent !important; }
 .se-boxes { position: absolute; inset: 0; }
 .se-box { position: absolute; outline: 1px dashed rgba(255,255,255,.55); cursor: move; }
-.se-box.sel { outline: 2px solid var(--accent); background: rgba(59,130,246,.08); }
+.se-box.sel { outline: 2px solid var(--accent); background: rgba(196,134,38,.10); }
 .se-box.off { opacity: .35; }
 .se-label { position: absolute; left: 0; top: 0; font-size: 11px; background: rgba(0,0,0,.7); padding: 1px 6px; border-radius: 0 0 4px 0; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .se-box i { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--accent); border-radius: 2px; display: none; }

@@ -1,7 +1,7 @@
 // Connexion temps réel au serveur : reconnexion automatique, horloge synchronisée,
 // actions avec accusé de réception. Partagé par toutes les pages.
 
-const PIN_KEY = 'presentor.pin';
+const PIN_KEY = 'presenthor.pin';
 
 export function getPin() {
   try { return new URLSearchParams(location.search).get('pin') || localStorage.getItem(PIN_KEY) || ''; } catch { return ''; }

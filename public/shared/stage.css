@@ -26,7 +26,7 @@
 .bar { display: grid; grid-template-columns: minmax(0, 32%) 1fr 9cqw; align-items: center; gap: 2cqw; font-size: 2.6cqw; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { height: 5.5cqh; background: rgba(255,255,255,.1); border-radius: 1cqh; overflow: hidden; }
-.bar-fill { height: 100%; background: var(--accent, #3b82f6); border-radius: 1cqh; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.bar-fill { height: 100%; background: var(--accent, #c48626); border-radius: 1cqh; transition: width .6s cubic-bezier(.2,.8,.2,1); }
 .bar-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .rating-avg { font-size: 9cqw; font-weight: 800; text-align: center; } .rating-avg small { font-size: .35em; opacity: .6; }
 .cloud { flex: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .3em 1em; font-size: 2cqw; font-weight: 700; }
@@ -44,7 +44,7 @@
 blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; text-wrap: balance; }
 .qa-author { font-size: 2.6cqw; opacity: .75; }
 
-.lower-third { position: absolute; left: 5cqw; bottom: 7cqh; max-width: 70cqw; background: rgba(2,6,23,.85); border-left: .6cqw solid var(--accent, #3b82f6);
+.lower-third { position: absolute; left: 5cqw; bottom: 7cqh; max-width: 70cqw; background: rgba(2,6,23,.85); border-left: .6cqw solid var(--accent, #c48626);
   color: #fff; padding: 1.6cqh 2.4cqw; font-family: system-ui, sans-serif; animation: lt-in .45s cubic-bezier(.2,.8,.2,1); }
 .lt-text { font-size: 3cqw; font-weight: 750; } .lt-sub { font-size: 1.9cqw; opacity: .8; margin-top: .4cqh; }
 @keyframes lt-in { from { transform: translateX(-4cqw); opacity: 0; } }

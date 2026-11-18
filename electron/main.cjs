@@ -7,6 +7,8 @@ const { pathToFileURL } = require('node:url');
 const { NdiOutputs } = require('./ndi-out.cjs');
 const { NativeDeck } = require('./ppt.cjs');
 
+app.setName('PresenThor');
+const ICON = path.join(__dirname, '..', 'public', 'brand', 'logo-512.png');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -36,6 +38,7 @@ function openOutput(outputId, displayId) {
   const display = screen.getAllDisplays().find((d) => d.id === displayId);
   const win = new BrowserWindow({
     title: 'Sortie',
+    icon: ICON,
     backgroundColor: '#000000',
     show: false,
     frame: !display,
@@ -83,7 +86,7 @@ function setGlobalClicker(on) {
   globalShortcut.unregisterAll();
   if (!on) return;
   // Télécommande active même si la régie n'a pas le focus (ex. opérateur sur un autre logiciel).
-  const send = (type) => control?.webContents.executeJavaScript(`window.__presentorAction && window.__presentorAction(${JSON.stringify({ type })})`);
+  const send = (type) => control?.webContents.executeJavaScript(`window.__presenthorAction && window.__presenthorAction(${JSON.stringify({ type })})`);
   globalShortcut.register('PageDown', () => send('next'));
   globalShortcut.register('PageUp', () => send('prev'));
 }
@@ -157,9 +160,11 @@ app.whenReady().then(async () => {
   server.store.onChange((st, kind) => { if (kind !== 'ndi' && kind !== 'votes') syncNdi(); });
   syncNdi();
 
+  app.setAboutPanelOptions({ applicationName: 'PresenThor', applicationVersion: app.getVersion(), iconPath: ICON, copyright: 'PresenThor' });
+  if (process.platform === 'darwin') app.dock?.setIcon(ICON);
   buildMenu();
   control = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 1000, minHeight: 640, title: 'Presentor Manager', backgroundColor: '#0b0e14',
+    width: 1440, height: 900, minWidth: 1000, minHeight: 640, title: 'PresenThor', backgroundColor: '#0a0a0b', icon: ICON,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false, sandbox: false },
   });
   control.loadURL(server.url + '/control/');

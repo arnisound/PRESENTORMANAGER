@@ -3,20 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Presentor Manager</title>
+<title>PresenThor</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <style>
   :root { color-scheme: dark; }
-  body { margin: 0; min-height: 100vh; background: #0b0e14; color: #e6e9ef; font-family: system-ui, -apple-system, sans-serif; display: grid; place-items: center; }
-  main { max-width: 760px; padding: 32px 16px; }
-  h1 { font-size: 30px; margin: 0 0 6px; } p { color: #94a3b8; margin: 0 0 24px; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at top, #1c1608, #0a0a0b 60%); color: #e6e9ef; font-family: system-ui, -apple-system, sans-serif; display: grid; place-items: center; }
+  main { max-width: 760px; padding: 32px 16px; text-align: center; }
+  .logo { width: 220px; height: 220px; filter: drop-shadow(0 12px 40px rgba(196,134,38,.25)); }
+  p { color: #a8a29e; margin: 12px auto 28px; max-width: 520px; }
+  .grid { text-align: left; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-  a { display: block; padding: 18px; border-radius: 12px; background: #121722; border: 1px solid #253045; color: inherit; text-decoration: none; }
-  a:hover { border-color: #3b82f6; } a b { display: block; font-size: 17px; margin-bottom: 4px; } a span { color: #94a3b8; font-size: 13px; }
+  a { display: block; padding: 18px; border-radius: 12px; background: #131315; border: 1px solid #2c2c33; color: inherit; text-decoration: none; }
+  a:hover { border-color: #c48626; } a b { display: block; font-size: 17px; margin-bottom: 4px; } a span { color: #94a3b8; font-size: 13px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Presentor Manager</h1>
+  <img class="logo" src="/brand/logo-512.png" alt="PresenThor">
+  <h1 hidden>PresenThor</h1>
   <p>Diffusion multi-écrans pour événements : présentations, vidéos, visio, sondages et questions en direct.</p>
   <div class="grid">
     <a href="/control/"><b>Régie</b><span>Conducteur, preview / programme, sorties, interaction</span></a>

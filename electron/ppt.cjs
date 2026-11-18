@@ -64,7 +64,7 @@ class WindowsDriver {
   }
   ensure() {
     if (this.ps && !this.ps.killed) return;
-    const file = path.join(os.tmpdir(), 'presentor-ppt.ps1');
+    const file = path.join(os.tmpdir(), 'presenthor-ppt.ps1');
     fs.writeFileSync(file, PS_SCRIPT);
     this.ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true });
     this.ps.stdout.setEncoding('utf8');
@@ -113,7 +113,7 @@ class MacDriver {
   async open(file, slide) {
     // PowerPoint pour Mac est "bac à sable" : on copie le fichier dans son conteneur
     // pour éviter la demande d'autorisation d'accès au fichier.
-    const box = path.join(os.homedir(), 'Library', 'Group Containers', 'UBF8T346G9.Office', 'Presentor');
+    const box = path.join(os.homedir(), 'Library', 'Group Containers', 'UBF8T346G9.Office', 'PresenThor');
     let target = file;
     try { fs.mkdirSync(box, { recursive: true }); target = path.join(box, path.basename(file)); fs.copyFileSync(file, target); } catch { target = file; }
     const r = await osa(`${PPT}
@@ -161,7 +161,7 @@ class NativeDeck {
 
   static async create(opts) {
     let driver = null;
-    if (process.env.PRESENTOR_PPT_DRIVER) driver = new (require(path.resolve(process.env.PRESENTOR_PPT_DRIVER)))(opts);
+    if (process.env.PRESENTHOR_PPT_DRIVER) driver = new (require(path.resolve(process.env.PRESENTHOR_PPT_DRIVER)))(opts);
     else if (process.platform === 'win32' && (await WindowsDriver.detect())) driver = new WindowsDriver();
     else if (process.platform === 'darwin' && (await MacDriver.detect())) driver = new MacDriver();
     const deck = new NativeDeck({ ...opts, driver });

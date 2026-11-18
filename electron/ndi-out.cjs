@@ -33,7 +33,7 @@ class NdiOutputs {
     }
   }
 
-  nameOf(o) { return (o.ndiName || `Presentor - ${o.name}`).slice(0, 60); }
+  nameOf(o) { return (o.ndiName || `PresenThor - ${o.name}`).slice(0, 60); }
 
   async start(o) {
     const a = { id: o.id, name: this.nameOf(o), frame: null, busy: false, sent: 0 };

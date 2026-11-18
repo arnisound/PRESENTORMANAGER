@@ -40,7 +40,7 @@ export function convertToPdf(input, outDir) {
   const run = () => new Promise((resolve, reject) => {
     const soffice = findSoffice();
     if (!soffice) return reject(new Error('LibreOffice introuvable : installez-le, ou exportez la présentation en PDF.'));
-    const profile = 'file://' + path.join(os.tmpdir(), 'presentor-lo-profile').replace(/\\/g, '/');
+    const profile = 'file://' + path.join(os.tmpdir(), 'presenthor-lo-profile').replace(/\\/g, '/');
     execFile(soffice, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', 'pdf', '--outdir', outDir, input],
       { timeout: 180000 }, (err) => {
         const out = path.join(outDir, path.basename(input).replace(/\.[^.]+$/, '.pdf'));
@@ -165,7 +165,7 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
         media.notes = pptxNotes(filePath);
         media.videos = pptxMedia(filePath, mediaDir, media.id);
       }
-      const work = fs.mkdtempSync(path.join(os.tmpdir(), 'presentor-'));
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), 'presenthor-'));
       const src = path.join(work, 'source' + path.extname(media.name).toLowerCase());
       fs.copyFileSync(filePath, src);
       const pdf = await convertToPdf(src, work);

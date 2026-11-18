@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Store, pollResults } from '../server/store.js';
 
 function fresh() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'presentor-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'presenthor-test-'));
   const s = new Store(dir);
   s.state.cues = [];
   s.state.media = [{ id: 'm1', name: 'deck.pdf', file: 'm1.pdf', kind: 'slides', status: 'ready', pages: 3 }, { id: 'm2', name: 'v.mp4', file: 'm2.mp4', kind: 'video', status: 'ready' }];

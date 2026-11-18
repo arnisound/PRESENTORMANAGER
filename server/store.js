@@ -19,7 +19,7 @@ function defaultState() {
       background: '#000000',
       logoMediaId: null, // affiché quand le programme est vide / en "logo"
       publicUrl: '', // URL publique pour le vote (mode en ligne)
-      accent: '#3b82f6',
+      accent: '#c48626',
     },
     media: [],
     cues: [],

@@ -10,7 +10,7 @@ body.idle { cursor: none; }
 .picker { max-width: 560px; margin: 8vh auto; padding: 0 16px; }
 .picker h1 { font-size: 22px; } .picker p { color: #9ca3af; }
 .picker a { display: flex; justify-content: space-between; padding: 14px 16px; margin: 8px 0; border-radius: 10px; background: #111827; color: #fff; text-decoration: none; border: 1px solid #1f2937; }
-.picker a:hover { border-color: #3b82f6; } .picker small { color: #9ca3af; }
+.picker a:hover { border-color: #c48626; } .picker small { color: #9ca3af; }
 
 /* Retour présentateur */
 .presenter { position: absolute; inset: 0; display: grid; grid-template-columns: 1.55fr 1fr; grid-template-rows: auto 1fr minmax(0, .9fr); gap: 1.4vh 1.4vw; padding: 1.6vh 1.6vw; box-sizing: border-box; background: #0b0f17; }
@@ -52,3 +52,4 @@ body.idle { cursor: none; }
 .zone-test.full { position: fixed; z-index: 40; }
 .zone-test svg { width: 100%; height: 100%; display: block; }
 .preview-mode body, html.preview-mode { cursor: default; }
+.picker-logo { width: 96px; height: 96px; display: block; margin-bottom: 8px; }

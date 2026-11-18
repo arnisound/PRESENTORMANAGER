@@ -39,7 +39,7 @@ async function receiveLoop(r) {
       colorFormat: g.COLOR_FORMAT_RGBX_RGBA,
       bandwidth: r.low ? g.BANDWIDTH_LOWEST : g.BANDWIDTH_HIGHEST,
       allowVideoFields: false,
-      name: 'Presentor',
+      name: 'PresenThor',
     });
   } catch (e) { r.error = e.message; return; }
   while (r.alive) {
@@ -123,7 +123,7 @@ const ndi = grandiose ? {
   stats: () => [...receivers.values()].map((r) => ({ source: r.source.name, frames: r.frames, error: r.error })),
 } : null;
 
-contextBridge.exposeInMainWorld('presentor', {
+contextBridge.exposeInMainWorld('presenthor', {
   isDesktop: true,
   platform: process.platform,
   ndi,
