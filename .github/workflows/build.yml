@@ -1,0 +1,47 @@
+# Construit automatiquement les installeurs PresenThor (Mac et Windows)
+# sur les machines de GitHub. Les fichiers sont à télécharger dans l'onglet
+# « Actions » du dépôt (section « Artifacts » en bas de chaque exécution).
+name: Installeurs PresenThor
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest        # Mac Apple Silicon (M1, M2, M3…)
+            target: --mac dmg --arm64
+            artifact: PresenThor-Mac-AppleSilicon
+          - os: macos-15-intel      # Mac Intel
+            target: --mac dmg --x64
+            artifact: PresenThor-Mac-Intel
+          - os: windows-latest
+            target: --win nsis --x64
+            artifact: PresenThor-Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Installation des dépendances (dont le module NDI)
+        run: npm ci
+      - name: Construction de l'installeur
+        # Pas de certificat Apple / Microsoft : signature ad hoc sur Mac, aucune sur Windows.
+        run: npx electron-builder ${{ matrix.target }} --publish never -c.mac.identity=-
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+          if-no-files-found: error
+          retention-days: 30

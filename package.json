@@ -20,8 +20,8 @@
   "scripts": {
     "start": "node server/start.js",
     "desktop": "electron .",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never",
     "dist:linux": "electron-builder --linux",
     "test": "node --test test/*.test.js"
   },
@@ -46,7 +46,8 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "arm64",
+            "x64"
           ]
         }
       ],
@@ -72,7 +73,8 @@
         "AppImage"
       ]
     },
-    "icon": "build/icon.png"
+    "icon": "build/icon.png",
+    "artifactName": "PresenThor-${version}-${os}-${arch}.${ext}"
   },
   "optionalDependencies": {
     "@stagetimerio/grandiose": "^0.2.1"
