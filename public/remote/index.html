@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0e14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Télécommande — Presentor</title>
+<link rel="stylesheet" href="/shared/stage.css">
+<style>
+  :root { color-scheme: dark; --pgm: #e11d48; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0b0e14; color: #e6e9ef; font-family: system-ui, -apple-system, sans-serif; }
+  body { display: flex; flex-direction: column; padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); gap: 10px; user-select: none; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; }
+  .timer { font-size: 34px; font-weight: 800; } .timer.warn { color: #f59e0b; } .timer.over { color: #ef4444; }
+  .clock { color: #94a3b8; font-size: 18px; } .off { color: #ef4444; font-size: 13px; }
+  .stage { aspect-ratio: 16/9; border-radius: 8px; outline: 3px solid var(--pgm); }
+  .info { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: #94a3b8; }
+  .info b { color: #e6e9ef; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notes { flex: 1; min-height: 60px; overflow: auto; background: #121722; border-radius: 8px; padding: 10px; font-size: 17px; line-height: 1.4; white-space: pre-wrap; }
+  .notes:empty::before { content: "Pas de notes"; color: #475569; }
+  .pad { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; height: 30vh; min-height: 150px; }
+  .pad button { border: 0; border-radius: 14px; font-size: 26px; font-weight: 800; color: #fff; background: #1f2937; touch-action: manipulation; }
+  .pad button:active { filter: brightness(1.3); transform: scale(.98); }
+  .pad .next { background: #2563eb; }
+  .row { display: flex; gap: 10px; }
+  .row button { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #253045; background: #121722; color: #e6e9ef; font-weight: 700; font-size: 15px; }
+  .row button.on { background: #7c3aed; border-color: #7c3aed; }
+</style>
+</head>
+<body>
+  <div class="head"><span class="timer" id="timer">--:--</span><span class="off" id="off" hidden>hors ligne</span><span class="clock" id="clock"></span></div>
+  <div id="stage"></div>
+  <div class="info"><b id="cur">—</b><span id="count"></span></div>
+  <div class="info"><span>Suivant : <b id="next">—</b></span></div>
+  <div class="notes" id="notes"></div>
+  <div class="row"><button id="black">Écran noir</button><button id="take">TAKE preview</button></div>
+  <div class="pad"><button id="prev">◀</button><button id="nextBtn" class="next">SUIVANT ▶</button></div>
+<script type="module">
+import { Client, fmtTime, timerValue } from '/shared/client.js';
+import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
+const $ = (s) => document.getElementById(s);
+let S;
+const client = new Client({ role: 'control', onState: render, onStatus: (s) => ($('off').hidden = s === 'online') });
+const stage = new Stage($('stage'), { client, monitor: true });
+const act = (type) => { navigator.vibrate?.(15); client.send({ type }); };
+$('nextBtn').onclick = () => act('next');
+$('prev').onclick = () => act('prev');
+$('black').onclick = () => act('blackout.toggle');
+$('take').onclick = () => act('take');
+function render(s) {
+  S = s;
+  const pos = s.live.program;
+  stage.update(s, describe(s, pos, { blackout: s.live.blackout, logo: s.live.logo }));
+  const cue = s.cues.find((c) => c.id === pos?.cueId);
+  const n = stepFrom(s, pos, 1);
+  const nc = s.cues.find((c) => c.id === n?.cueId);
+  $('cur').textContent = cue?.name || '—';
+  $('next').textContent = nc ? nc.name + (n.cueId === pos?.cueId ? ' · diapo ' + n.slide : '') : 'fin';
+  const m = cue?.type === 'slides' ? s.media.find((x) => x.id === cue.mediaId) : null;
+  $('count').textContent = m ? pos.slide + ' / ' + m.pages : '';
+  $('notes').textContent = notesFor(s, pos);
+  $('black').classList.toggle('on', s.live.blackout);
+}
+setInterval(() => {
+  $('clock').textContent = new Date(client.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  if (!S) return;
+  const v = timerValue(S.timer, client.now());
+  $('timer').textContent = fmtTime(v, true);
+  $('timer').className = 'timer' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < 120000 ? ' warn' : '') : '');
+}, 250);
+navigator.wakeLock?.request('screen').catch(() => {});
+</script>
+</body>
+</html>

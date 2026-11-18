@@ -1,0 +1,436 @@
+// État du show (conducteur, médias, sorties, interactions) + logique de régie.
+// Toute modification passe par dispatch(action) : un seul point de vérité,
+// diffusé ensuite à tous les clients (régie, sorties, télécommandes, public).
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+export const uid = (p = '') => p + crypto.randomBytes(5).toString('hex');
+
+const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'poll', 'qa', 'title', 'black'];
+const SOURCES = ['program', 'preview', 'presenter', 'multiview', 'clean'];
+
+function defaultState() {
+  return {
+    show: { name: 'Nouvel événement' },
+    settings: {
+      transition: 'fade', // 'fade' | 'cut'
+      transitionMs: 400,
+      background: '#000000',
+      logoMediaId: null, // affiché quand le programme est vide / en "logo"
+      publicUrl: '', // URL publique pour le vote (mode en ligne)
+      accent: '#3b82f6',
+    },
+    media: [],
+    cues: [],
+    outputs: [
+      { id: 'out_public', name: 'Grand écran public', source: 'program', audio: true },
+      { id: 'out_presenter', name: 'Retour présentateur', source: 'presenter', audio: false },
+      { id: 'out_regie', name: 'Multiview régie', source: 'multiview', audio: false },
+    ],
+    live: {
+      program: null, // { cueId, slide }
+      preview: null,
+      blackout: false,
+      logo: false,
+      playback: null, // { cueId, playing, startedAt, offset }
+      overlay: null, // { text, sub } bandeau / lower-third
+    },
+    timer: { mode: 'down', duration: 20 * 60 * 1000, running: false, startedAt: 0, elapsed: 0 },
+    message: null, // { text, at } message au présentateur
+    polls: [],
+    questions: [],
+    qa: { open: false },
+    activePollId: null, // sondage ouvert côté public
+  };
+}
+
+export class Store {
+  constructor(dataDir) {
+    this.dataDir = dataDir;
+    this.file = path.join(dataDir, 'show.json');
+    this.listeners = new Set();
+    this.endedSeen = new Set();
+    fs.mkdirSync(path.join(dataDir, 'media'), { recursive: true });
+    this.state = defaultState();
+    try {
+      const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      const def = defaultState();
+      this.state = {
+        ...def,
+        ...saved,
+        settings: { ...def.settings, ...saved.settings },
+        live: { ...def.live, ...saved.live, blackout: false },
+        timer: { ...def.timer, ...saved.timer },
+      };
+    } catch { /* premier lancement */ }
+    // Un média resté "converting" après un crash ne finira jamais.
+    for (const m of this.state.media) if (m.status === 'converting') m.status = 'error', m.error = 'Conversion interrompue';
+    this._saveTimer = null;
+  }
+
+  onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+
+  emit(kind = 'full') {
+    for (const fn of this.listeners) fn(this.state, kind);
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => this.save(), 500);
+  }
+
+  save() {
+    const tmp = this.file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 1));
+    fs.renameSync(tmp, this.file);
+  }
+
+  cue(id) { return this.state.cues.find((c) => c.id === id); }
+  mediaOf(cue) { return cue && cue.mediaId ? this.state.media.find((m) => m.id === cue.mediaId) : null; }
+
+  slideCount(cue) {
+    if (!cue) return 1;
+    if (cue.type === 'slides') return Math.max(1, this.mediaOf(cue)?.pages || 1);
+    return 1;
+  }
+
+  // --- navigation -------------------------------------------------------
+  stepFrom(pos, dir) {
+    const { cues } = this.state;
+    if (!cues.length) return null;
+    if (!pos) return { cueId: cues[0].id, slide: 1 };
+    const cue = this.cue(pos.cueId);
+    const idx = cues.findIndex((c) => c.id === pos.cueId);
+    if (dir > 0) {
+      if (cue && pos.slide < this.slideCount(cue)) return { cueId: cue.id, slide: pos.slide + 1 };
+      const nxt = cues[idx + 1];
+      return nxt ? { cueId: nxt.id, slide: 1 } : null;
+    }
+    if (cue && pos.slide > 1) return { cueId: cue.id, slide: pos.slide - 1 };
+    const prv = cues[idx - 1];
+    return prv ? { cueId: prv.id, slide: this.slideCount(prv) } : null;
+  }
+
+  setProgram(pos) {
+    const { live } = this.state;
+    const prevCue = live.program?.cueId;
+    live.program = pos;
+    live.blackout = false;
+    live.logo = false;
+    if (pos && pos.cueId !== prevCue) {
+      const cue = this.cue(pos.cueId);
+      if (cue && (cue.type === 'video' || cue.type === 'audio')) {
+        const auto = cue.autoplay !== false;
+        live.playback = { cueId: cue.id, playing: auto, startedAt: Date.now() + 150, offset: 0 };
+      } else {
+        live.playback = null;
+      }
+      // La régie prépare automatiquement l'élément suivant en preview.
+      const after = this.state.cues[this.state.cues.findIndex((c) => c.id === pos.cueId) + 1];
+      live.preview = after ? { cueId: after.id, slide: 1 } : live.preview;
+    }
+    if (!pos) live.playback = null;
+  }
+
+  // --- actions ----------------------------------------------------------
+  dispatch(a, role = 'control') {
+    const s = this.state;
+    const audienceActions = ['vote', 'qa.ask'];
+    const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle'];
+    if (role === 'audience' && !audienceActions.includes(a.type)) return { error: 'forbidden' };
+    if (role === 'output' && !outputActions.includes(a.type)) return { error: 'forbidden' };
+
+    switch (a.type) {
+      // conducteur
+      case 'cue.add': {
+        if (!CUE_TYPES.includes(a.cue?.type)) return { error: 'type inconnu' };
+        const cue = { id: uid('cue_'), name: '', notes: '', ...a.cue };
+        if (!cue.name) cue.name = defaultName(cue, this.mediaOf(cue));
+        const at = a.index ?? s.cues.length;
+        s.cues.splice(at, 0, cue);
+        if (!s.live.preview) s.live.preview = { cueId: cue.id, slide: 1 };
+        this.emit();
+        return { ok: true, id: cue.id };
+      }
+      case 'cue.update': {
+        const cue = this.cue(a.id);
+        if (!cue) return { error: 'cue introuvable' };
+        const { id, type, ...patch } = a.patch || {};
+        Object.assign(cue, patch);
+        break;
+      }
+      case 'cue.remove': {
+        s.cues = s.cues.filter((c) => c.id !== a.id);
+        if (s.live.program?.cueId === a.id) this.setProgram(null);
+        if (s.live.preview?.cueId === a.id) s.live.preview = null;
+        break;
+      }
+      case 'cue.move': {
+        const from = s.cues.findIndex((c) => c.id === a.id);
+        if (from < 0) return { error: 'cue introuvable' };
+        const [c] = s.cues.splice(from, 1);
+        s.cues.splice(Math.max(0, Math.min(a.index, s.cues.length)), 0, c);
+        break;
+      }
+      case 'cue.duplicate': {
+        const i = s.cues.findIndex((c) => c.id === a.id);
+        if (i < 0) return { error: 'cue introuvable' };
+        s.cues.splice(i + 1, 0, { ...structuredClone(s.cues[i]), id: uid('cue_'), name: s.cues[i].name + ' (copie)' });
+        break;
+      }
+
+      // diffusion
+      case 'preview.set':
+        s.live.preview = a.cueId ? { cueId: a.cueId, slide: clampSlide(this, a.cueId, a.slide) } : null;
+        break;
+      case 'take': {
+        if (!s.live.preview) return { error: 'preview vide' };
+        this.setProgram({ ...s.live.preview });
+        break;
+      }
+      case 'program.set':
+        this.setProgram(a.cueId ? { cueId: a.cueId, slide: clampSlide(this, a.cueId, a.slide) } : null);
+        break;
+      case 'program.clear':
+        this.setProgram(null);
+        break;
+      case 'next':
+      case 'prev': {
+        // Anti-rebond : certaines télécommandes envoient 2 événements par appui.
+        const now = Date.now();
+        if (this._lastNav && now - this._lastNav < 120) return { ok: true };
+        this._lastNav = now;
+        if (s.live.blackout) { s.live.blackout = false; break; }
+        const pos = this.stepFrom(s.live.program, a.type === 'next' ? 1 : -1);
+        if (pos) this.setProgram(pos);
+        break;
+      }
+      case 'slide.goto': {
+        if (!s.live.program) return { error: 'rien au programme' };
+        s.live.program = { ...s.live.program, slide: clampSlide(this, s.live.program.cueId, a.slide) };
+        break;
+      }
+      case 'blackout.toggle':
+        s.live.blackout = a.value ?? !s.live.blackout;
+        break;
+      case 'logo.toggle':
+        s.live.logo = a.value ?? !s.live.logo;
+        break;
+      case 'overlay.set':
+        s.live.overlay = a.overlay && a.overlay.text ? { text: a.overlay.text, sub: a.overlay.sub || '' } : null;
+        break;
+
+      // lecture vidéo/audio (synchronisée sur l'horloge serveur)
+      case 'video.play': {
+        const p = s.live.playback;
+        if (!p || p.playing) break;
+        p.playing = true;
+        p.startedAt = Date.now() + 100 - p.offset * 1000;
+        break;
+      }
+      case 'video.pause': {
+        const p = s.live.playback;
+        if (!p || !p.playing) break;
+        p.offset = (Date.now() - p.startedAt) / 1000;
+        p.playing = false;
+        break;
+      }
+      case 'video.seek': {
+        const p = s.live.playback;
+        if (!p) break;
+        p.offset = Math.max(0, a.time || 0);
+        if (p.playing) p.startedAt = Date.now() + 100 - p.offset * 1000;
+        break;
+      }
+      case 'video.ended': {
+        const p = s.live.playback;
+        if (!p || p.cueId !== a.cueId) return { ok: true };
+        const key = p.cueId + ':' + p.startedAt;
+        if (this.endedSeen.has(key)) return { ok: true };
+        this.endedSeen.add(key);
+        const cue = this.cue(p.cueId);
+        if (cue?.loop) return { ok: true };
+        if (cue?.autoNext) {
+          const pos = this.stepFrom(s.live.program, 1);
+          if (pos) { this.setProgram(pos); break; }
+        }
+        p.playing = false;
+        p.offset = a.duration || 0;
+        break;
+      }
+
+      // sorties vidéo
+      case 'output.add':
+        s.outputs.push({ id: uid('out_'), name: a.name || 'Nouvelle sortie', source: 'program', audio: false });
+        break;
+      case 'output.update': {
+        const o = s.outputs.find((x) => x.id === a.id);
+        if (!o) return { error: 'sortie introuvable' };
+        const { id, ...patch } = a.patch || {};
+        if (patch.source && !SOURCES.includes(patch.source) && !patch.source.startsWith('cue:')) return { error: 'source invalide' };
+        Object.assign(o, patch);
+        break;
+      }
+      case 'output.remove':
+        s.outputs = s.outputs.filter((o) => o.id !== a.id);
+        break;
+
+      // réglages
+      case 'settings.update':
+        Object.assign(s.settings, a.patch || {});
+        break;
+      case 'show.rename':
+        s.show.name = String(a.name || '').slice(0, 120) || s.show.name;
+        break;
+
+      // chrono + message présentateur
+      case 'timer.set': {
+        const t = s.timer;
+        if (a.mode) t.mode = a.mode;
+        if (a.duration != null) t.duration = Math.max(0, a.duration);
+        t.elapsed = 0; t.running = false;
+        break;
+      }
+      case 'timer.start': {
+        const t = s.timer;
+        if (!t.running) { t.running = true; t.startedAt = Date.now(); }
+        break;
+      }
+      case 'timer.pause': {
+        const t = s.timer;
+        if (t.running) { t.elapsed += Date.now() - t.startedAt; t.running = false; }
+        break;
+      }
+      case 'timer.reset':
+        Object.assign(s.timer, { running: false, elapsed: 0 });
+        break;
+      case 'message.send':
+        s.message = a.text ? { text: String(a.text).slice(0, 300), at: Date.now() } : null;
+        break;
+
+      // sondages / questionnaires
+      case 'poll.create': {
+        const poll = {
+          id: uid('poll_'),
+          question: a.poll?.question || 'Nouvelle question',
+          kind: a.poll?.kind || 'choice', // choice | multi | rating | words
+          options: a.poll?.options?.length ? a.poll.options : ['Oui', 'Non'],
+          showResults: true,
+          votes: {}, // voterId -> réponse
+        };
+        s.polls.push(poll);
+        this.emit();
+        return { ok: true, id: poll.id };
+      }
+      case 'poll.update': {
+        const p = s.polls.find((x) => x.id === a.id);
+        if (!p) return { error: 'sondage introuvable' };
+        const { id, votes, ...patch } = a.patch || {};
+        Object.assign(p, patch);
+        break;
+      }
+      case 'poll.remove':
+        s.polls = s.polls.filter((p) => p.id !== a.id);
+        if (s.activePollId === a.id) s.activePollId = null;
+        break;
+      case 'poll.open':
+        s.activePollId = a.id || null;
+        break;
+      case 'poll.reset': {
+        const p = s.polls.find((x) => x.id === a.id);
+        if (p) p.votes = {};
+        break;
+      }
+      case 'vote': {
+        const p = s.polls.find((x) => x.id === a.pollId);
+        if (!p || s.activePollId !== p.id || !a.voterId) return { error: 'vote fermé' };
+        p.votes[String(a.voterId).slice(0, 40)] = sanitizeVote(p, a.answer);
+        this.emit('votes');
+        return { ok: true };
+      }
+
+      // questions du public
+      case 'qa.toggle':
+        s.qa.open = a.value ?? !s.qa.open;
+        break;
+      case 'qa.ask': {
+        if (!s.qa.open) return { error: 'questions fermées' };
+        const text = String(a.text || '').trim().slice(0, 280);
+        if (!text) return { error: 'vide' };
+        s.questions.push({ id: uid('q_'), text, author: String(a.author || '').slice(0, 40), status: 'pending', at: Date.now() });
+        break;
+      }
+      case 'qa.update': {
+        const q = s.questions.find((x) => x.id === a.id);
+        if (!q) return { error: 'question introuvable' };
+        if (a.status) q.status = a.status; // pending | approved | shown | done | rejected
+        if (a.status === 'shown') for (const o of s.questions) if (o !== q && o.status === 'shown') o.status = 'done';
+        break;
+      }
+      case 'qa.clear':
+        s.questions = [];
+        break;
+
+      case 'media.remove': {
+        s.media = s.media.filter((m) => m.id !== a.id);
+        for (const c of s.cues) if (c.mediaId === a.id) c.mediaId = null;
+        break;
+      }
+
+      default:
+        return { error: 'action inconnue: ' + a.type };
+    }
+    this.emit();
+    return { ok: true };
+  }
+
+  // Vue réduite et anonymisée pour le public (pas de conducteur, pas de notes).
+  publicState() {
+    const s = this.state;
+    const poll = s.polls.find((p) => p.id === s.activePollId);
+    return {
+      show: s.show,
+      accent: s.settings.accent,
+      qaOpen: s.qa.open,
+      poll: poll ? { id: poll.id, question: poll.question, kind: poll.kind, options: poll.options,
+        results: poll.showResults ? pollResults(poll) : null } : null,
+    };
+  }
+}
+
+function clampSlide(store, cueId, slide) {
+  const n = store.slideCount(store.cue(cueId));
+  return Math.max(1, Math.min(n, slide || 1));
+}
+
+function defaultName(cue, media) {
+  if (media) return media.name.replace(/\.[^.]+$/, '');
+  return { web: 'Page web / visio', camera: 'Caméra / capture', poll: 'Sondage', qa: 'Questions du public',
+    title: 'Titre', black: 'Noir', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
+}
+
+function sanitizeVote(poll, answer) {
+  if (poll.kind === 'multi') return [].concat(answer).map(Number).filter((n) => n >= 0 && n < poll.options.length).slice(0, poll.options.length);
+  if (poll.kind === 'rating') return Math.max(1, Math.min(5, Number(answer) || 1));
+  if (poll.kind === 'words') return String(answer || '').trim().toLowerCase().slice(0, 30);
+  const n = Number(answer);
+  return n >= 0 && n < poll.options.length ? n : 0;
+}
+
+export function pollResults(poll) {
+  const votes = Object.values(poll.votes || {});
+  const total = votes.length;
+  if (poll.kind === 'rating') {
+    const counts = [0, 0, 0, 0, 0];
+    for (const v of votes) counts[v - 1]++;
+    const avg = total ? votes.reduce((a, b) => a + b, 0) / total : 0;
+    return { total, counts, avg };
+  }
+  if (poll.kind === 'words') {
+    const map = {};
+    for (const v of votes) if (v) map[v] = (map[v] || 0) + 1;
+    const words = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 40);
+    return { total, words };
+  }
+  const counts = poll.options.map(() => 0);
+  for (const v of votes) for (const i of [].concat(v)) if (counts[i] != null) counts[i]++;
+  return { total, counts };
+}

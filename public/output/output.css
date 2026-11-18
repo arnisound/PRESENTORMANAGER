@@ -1,0 +1,44 @@
+html, body { margin: 0; height: 100%; background: #000; color: #e5e7eb; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+body.idle { cursor: none; }
+#app { position: fixed; inset: 0; }
+#app > .stage { position: absolute; inset: 0; }
+
+#status { position: fixed; top: 8px; right: 8px; z-index: 50; background: #b91c1c; color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 99px; }
+#audio-unlock { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; background: #f59e0b; color: #111; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+
+/* Sélecteur de sortie */
+.picker { max-width: 560px; margin: 8vh auto; padding: 0 16px; }
+.picker h1 { font-size: 22px; } .picker p { color: #9ca3af; }
+.picker a { display: flex; justify-content: space-between; padding: 14px 16px; margin: 8px 0; border-radius: 10px; background: #111827; color: #fff; text-decoration: none; border: 1px solid #1f2937; }
+.picker a:hover { border-color: #3b82f6; } .picker small { color: #9ca3af; }
+
+/* Retour présentateur */
+.presenter { position: absolute; inset: 0; display: grid; grid-template-columns: 1.55fr 1fr; grid-template-rows: auto 1fr minmax(0, .9fr); gap: 1.4vh 1.4vw; padding: 1.6vh 1.6vw; box-sizing: border-box; background: #0b0f17; }
+.p-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 2vw; font-variant-numeric: tabular-nums; }
+.p-clock { font-size: 5vh; font-weight: 700; color: #cbd5e1; }
+.p-timer { font-size: 9vh; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+.p-timer.warn { color: #f59e0b; } .p-timer.over { color: #ef4444; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+.p-count { font-size: 4vh; color: #94a3b8; text-align: right; }
+.p-current { grid-row: 2 / 4; display: flex; flex-direction: column; gap: .8vh; min-height: 0; }
+.p-next { display: flex; flex-direction: column; gap: .8vh; min-height: 0; }
+.p-label { font-size: 2.1vh; text-transform: uppercase; letter-spacing: .12em; color: #64748b; display: flex; justify-content: space-between; gap: 1em; }
+.p-label b { color: #e2e8f0; letter-spacing: 0; text-transform: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-current .stage, .p-next .stage { flex: 1; border-radius: 6px; outline: 1px solid #1e293b; }
+.p-current .stage { outline: 3px solid #dc2626; }
+.p-notes { overflow: auto; font-size: 3.3vh; line-height: 1.35; white-space: pre-wrap; background: #111827; border-radius: 8px; padding: 1.4vh 1.4vw; color: #f1f5f9; }
+.p-notes:empty::before { content: "Pas de notes"; color: #475569; }
+.p-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20; max-width: 80vw; background: #facc15; color: #111; font-size: 6vh; font-weight: 800; padding: 3vh 4vw; border-radius: 16px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.p-black { position: absolute; top: 1.6vh; left: 50%; transform: translateX(-50%); background: #7c3aed; color: #fff; padding: .5vh 1.5vw; border-radius: 99px; font-weight: 700; font-size: 2.4vh; z-index: 10; }
+
+/* Multiview régie */
+.multiview { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr auto; gap: 1vh 1vw; padding: 1vh 1vw; box-sizing: border-box; background: #05070c; }
+.mv-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-variant-numeric: tabular-nums; font-size: 3vh; }
+.mv-cell { display: flex; flex-direction: column; gap: .6vh; min-height: 0; }
+.mv-cell .stage { flex: 1; outline: 3px solid #334155; }
+.mv-cell.pgm .stage { outline-color: #dc2626; } .mv-cell.pvw .stage { outline-color: #16a34a; }
+.mv-tag { font-size: 2.2vh; font-weight: 700; letter-spacing: .1em; display: flex; justify-content: space-between; }
+.mv-cell.pgm .mv-tag { color: #f87171; } .mv-cell.pvw .mv-tag { color: #4ade80; }
+.mv-list { grid-column: 1 / -1; display: flex; gap: .6vw; overflow: hidden; font-size: 1.8vh; }
+.mv-list span { padding: .6vh .8vw; border-radius: 6px; background: #111827; white-space: nowrap; }
+.mv-list span.pgm { background: #7f1d1d; } .mv-list span.pvw { background: #14532d; }

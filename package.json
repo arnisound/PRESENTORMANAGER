@@ -1,0 +1,74 @@
+{
+  "name": "presentor-manager",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "express": "^5.3.0",
+    "multer": "^2.5.0",
+    "pdfjs-dist": "^4.10.38",
+    "qrcode": "^1.5.4",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "^26.18.0"
+  },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "description": "Gestion professionnelle de la diffusion multi-écrans pour événements",
+  "scripts": {
+    "start": "node server/start.js",
+    "desktop": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "test": "node --test test/*.test.js"
+  },
+  "author": "Presentor",
+  "build": {
+    "appId": "com.presentor.manager",
+    "productName": "Presentor Manager",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "server/**",
+      "public/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}
