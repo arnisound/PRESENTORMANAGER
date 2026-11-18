@@ -1,6 +1,6 @@
 // Régie PresenThor : grille calques × colonnes (déclenchement de clips en direct),
 // moniteurs, propriétés Composition / Calque / Clip, navigateur de médias et sources.
-import { Client, bindClicker, esc, fmtTime, timerValue, getPin } from '/shared/client.js';
+import { Client, bindClicker, esc, fmtTime, timerValue, timerVisible, getPin } from '/shared/client.js';
 import { Stage, describe, pdfThumb, joinUrl } from '/shared/renderer.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
 import { openSceneEditor } from '/control/scene-editor.js';
@@ -974,6 +974,41 @@ $('#master').oninput = (e) => sendBound('comp:master', Number(e.target.value));
 $('#master').onchange = (e) => e.target.blur();
 $('#timer-toggle').onclick = () => send({ type: S.timer.running ? 'timer.pause' : 'timer.start' });
 $('#timer-reset').onclick = () => send({ type: 'timer.reset' });
+// Réglage rapide du chrono (clic sur l'affichage).
+$('#timer-display').onclick = (e) => {
+  const t = S.timer, st = S.settings;
+  const r = e.target.getBoundingClientRect();
+  const m = $('#menu');
+  m.innerHTML = `<div class="timer-pop">
+    <b>Chronomètre</b>
+    <div class="row"><select id="tp-mode">${sel_([['down', 'Compte à rebours'], ['up', 'Chronomètre']], t.mode)}</select>
+      <input id="tp-min" type="number" min="0" step="1" value="${Math.round(t.duration / 60000)}" style="width:70px"><span class="hint">min</span></div>
+    <div class="row wrap">${[5, 10, 15, 20, 30, 45, 60].map((n) => `<button class="btn sm" data-tp-preset="${n}">${n}′</button>`).join('')}</div>
+    <div class="row"><button class="btn sm primary" data-tp="apply">Appliquer</button><button class="btn sm" data-tp="start">${t.running ? 'Pause' : 'Démarrer'}</button><button class="btn sm" data-tp="reset">Remettre à zéro</button></div>
+    <b>Affichage</b>
+    <select id="tp-show">${sel_([['always', 'Toujours affiché'], ['running', 'Seulement quand il tourne'], ['never', 'Jamais (désactivé)']], st.timerShow || 'running')}</select>
+    <label class="check"><input type="checkbox" id="tp-pres"${st.timerOnPresenter !== false ? ' checked' : ''}> Retour présentateur</label>
+    <label class="check"><input type="checkbox" id="tp-rem"${st.timerOnRemote !== false ? ' checked' : ''}> Télécommande smartphone</label>
+    <label class="check"><input type="checkbox" id="tp-reg"${st.timerOnRegie !== false ? ' checked' : ''}> Régie</label></div>`;
+  m.hidden = false;
+  m.style.left = Math.min(r.left, innerWidth - 300) + 'px';
+  m.style.top = r.bottom + 6 + 'px';
+  m.onclick = (ev) => {
+    ev.stopPropagation();
+    const b = ev.target.closest('[data-tp], [data-tp-preset]');
+    if (!b) return;
+    if (b.dataset.tpPreset) { $('#tp-min').value = b.dataset.tpPreset; send({ type: 'timer.set', mode: $('#tp-mode').value, duration: Number(b.dataset.tpPreset) * 60000 }); return; }
+    if (b.dataset.tp === 'apply') send({ type: 'timer.set', mode: $('#tp-mode').value, duration: Number($('#tp-min').value) * 60000 });
+    if (b.dataset.tp === 'start') { send({ type: S.timer.running ? 'timer.pause' : 'timer.start' }); closeMenu(); }
+    if (b.dataset.tp === 'reset') send({ type: 'timer.reset' });
+  };
+  m.onchange = (ev) => {
+    const id = ev.target.id;
+    const map = { 'tp-show': ['timerShow', ev.target.value], 'tp-pres': ['timerOnPresenter', ev.target.checked], 'tp-rem': ['timerOnRemote', ev.target.checked], 'tp-reg': ['timerOnRegie', ev.target.checked] };
+    if (map[id]) send({ type: 'settings.update', patch: { [map[id][0]]: map[id][1] } });
+  };
+  e.stopPropagation();
+};
 
 // ------------------------------------------------------------------ menu contextuel
 function openMenu(x, y, items) {
@@ -1199,8 +1234,13 @@ setInterval(() => {
   $('#clock').textContent = new Date(now).toLocaleTimeString('fr-FR');
   const v = timerValue(S.timer, now);
   const td = $('#timer-display');
+  // En régie, le chrono reste accessible (bouton ⏱) même masqué, sauf s'il est désactivé ici.
+  const shown = timerVisible(S, 'Regie');
+  $('.timer-box').hidden = S.settings.timerOnRegie === false || S.settings.timerShow === 'never';
+  td.classList.toggle('idle', !shown);
   td.textContent = fmtTime(v, true);
-  td.className = 'timer-display' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < 120000 ? ' warn' : '') : '');
+  td.className = 'timer-display' + (shown ? '' : ' idle') + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < (S.settings.timerWarnSec ?? 120) * 1000 ? ' warn' : '') : '');
+  if (!shown) td.textContent = '⏱ ' + fmtTime(S.timer.duration);
   $('#timer-toggle').textContent = S.timer.running ? '⏸' : '▶';
   for (const tl of document.querySelectorAll('[data-tl]')) {
     const c = cueById(tl.dataset.tl);

@@ -4,7 +4,7 @@ import { esc, getPin } from '/shared/client.js';
 
 const SECTIONS = [
   ['play', 'Lecture'], ['regie', 'Régie et télécommande'], ['outputs', 'Sorties et rendu'], ['lt', 'Bandeau et habillage'],
-  ['public', 'Public et présentateur'], ['visio', 'Visio (invités)'], ['ndi', 'NDI'], ['api', 'Commandes à distance'], ['system', 'Système et sauvegarde'],
+  ['public', 'Public et présentateur'], ['timer', 'Chronomètre'], ['visio', 'Visio (invités)'], ['ndi', 'NDI'], ['api', 'Commandes à distance'], ['system', 'Système et sauvegarde'],
 ];
 
 export function openPrefs({ getState, send, info, toast }) {
@@ -60,6 +60,13 @@ export function openPrefs({ getState, send, info, toast }) {
         + row('Résultats visibles par défaut', chk('voteResultsDefault'))
         + row('Adresse publique (serveur en ligne)', txt('publicUrl', 'https://evenement.mondomaine.fr', 'url'), 'Utilisée pour les QR codes de vote et le lien invité. Laissez vide sur un réseau local.')
         + row('Chrono : alerte (orange) avant la fin', num('timerWarnSec', 0, 3600, 10, 'secondes'));
+    } else if (section === 'timer') {
+      h = row('Affichage du chronomètre', sel('timerShow', [['always', 'Toujours affiché'], ['running', 'Seulement quand il tourne'], ['never', 'Jamais (désactivé)']]), '« Seulement quand il tourne » : rien ne s\'affiche tant que vous ne l\'avez pas lancé.')
+        + row('Sur le retour présentateur', chk('timerOnPresenter'))
+        + row('Sur la télécommande smartphone', chk('timerOnRemote'))
+        + row('Dans la régie', chk('timerOnRegie'))
+        + row('Alerte (orange) avant la fin', num('timerWarnSec', 0, 3600, 10, 'secondes'))
+        + `<p class="hint">Durée, mode (compte à rebours / chronomètre), départ et remise à zéro : cliquez sur le chrono en haut de la régie, ou onglet Direct.</p>`;
     } else if (section === 'visio') {
       const link = `${(s.publicUrl || '').replace(/\/$/, '') || base}/guest/?k=${s.guestToken || ''}`;
       h = row('Lien à envoyer aux intervenants', `<div class="col"><div class="link">${esc(link)}</div><div class="row"><button class="btn sm" data-copy="${esc(link)}">Copier</button><button class="btn sm" data-regen="guestToken">Nouveau lien</button></div></div>`, 'L\'intervenant ouvre ce lien dans Chrome, Edge, Safari ou Firefox : caméra + micro, sans rien installer. « Nouveau lien » invalide l\'ancien.')

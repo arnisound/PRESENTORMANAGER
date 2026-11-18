@@ -57,7 +57,7 @@
     <button id="nextBtn" class="next">SUIVANT ▶</button>
   </div>
 <script type="module">
-import { Client, fmtTime, timerValue } from '/shared/client.js';
+import { Client, fmtTime, timerValue, timerVisible } from '/shared/client.js';
 import { Stage, describe } from '/shared/renderer.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
 const $ = (s) => document.getElementById(s);
@@ -105,6 +105,7 @@ setInterval(() => {
   $('clock').textContent = new Date(client.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   if (!S) return;
   const v = timerValue(S.timer, client.now());
+  $('timer').style.visibility = timerVisible(S, 'Remote') ? '' : 'hidden';
   $('timer').textContent = fmtTime(v, true);
   $('timer').className = 'timer' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < (S.settings.timerWarnSec ?? 120) * 1000 ? ' warn' : '') : '');
 }, 250);

@@ -54,6 +54,11 @@ function defaultState() {
       voteChange: true,
       voteResultsDefault: true,
       timerWarnSec: 120,
+      // Chronomètre : 'always' | 'running' (seulement quand il est lancé) | 'never'
+      timerShow: 'running',
+      timerOnRegie: true,
+      timerOnPresenter: true,
+      timerOnRemote: true,
       // NDI
       ndiExtraIps: '',
       ndiFps: 30,

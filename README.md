@@ -66,7 +66,8 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   Chaque sortie peut aussi utiliser le mapping (déformation 4 coins, fondu de bord, mire) et être publiée en NDI.
 - **Plein écran des sorties** (app Mac / PC) : **Échap** ou double-clic dans la sortie pour revenir en fenêtre, **Ctrl+Alt+F** (⌘+Alt+F) depuis n'importe où, ou bouton dans l'onglet *Sorties*.
 - **Public** : sondages en direct (QR code, résultats animés), nuage de mots, questions modérées.
-- **Direct** : message au présentateur, bandeau nom / fonction, chronomètre, écran noir.
+- **Direct** : message au présentateur, bandeau nom / fonction, écran noir.
+- **Chronomètre réglable** : affiché toujours, seulement quand il tourne (par défaut) ou jamais ; à activer séparément sur la régie, le retour présentateur et la télécommande. Un clic sur le chrono de la régie ouvre son réglage rapide (durée, mode, départ, remise à zéro, affichage).
 - **Préférences** (bouton ⚙), par thèmes :
   - lecture ;
   - régie et télécommande (anti-rebond, touches) ;

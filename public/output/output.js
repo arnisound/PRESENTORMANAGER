@@ -1,6 +1,6 @@
 // Page de sortie vidéo : une instance par écran physique (grand écran, retour
 // présentateur, écrans périphériques, multiview régie…).
-import { Client, bindClicker, esc, fmtTime, timerValue } from '/shared/client.js';
+import { Client, bindClicker, esc, fmtTime, timerValue, timerVisible } from '/shared/client.js';
 import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
 import { quadMatrix, blendMask, testPatternSvg, DEFAULT_CORNERS } from '/shared/mapping.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
@@ -179,6 +179,7 @@ function presenterView(opts) {
     $('[data-clock]').textContent = new Date(client.now()).toLocaleTimeString('fr-FR');
     const v = timerValue(state.timer, client.now());
     const el = $('[data-timer]');
+    el.hidden = !timerVisible(state, 'Presenter');
     el.textContent = fmtTime(v, true);
     el.className = 'p-timer' + (state.timer.mode === 'down' ? (v < 0 ? ' over' : v < (state.settings.timerWarnSec ?? 120) * 1000 ? ' warn' : '') : '');
   };
@@ -214,7 +215,7 @@ function multiView(opts) {
   let state;
   setInterval(() => {
     $('[data-clock]').textContent = new Date(client.now()).toLocaleTimeString('fr-FR');
-    if (state) $('[data-timer]').textContent = '⏱ ' + fmtTime(timerValue(state.timer, client.now()), true);
+    if (state) $('[data-timer]').textContent = timerVisible(state, 'Regie') ? '⏱ ' + fmtTime(timerValue(state.timer, client.now()), true) : '';
   }, 250);
   return {
     source: 'multiview', audio: !!opts.audio,

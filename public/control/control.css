@@ -265,3 +265,13 @@ body.panel-mode .qr { width: 160px; height: 160px; }
 .tl-h.out { background: var(--accent-hi); }
 .tl-head { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--live); box-shadow: 0 0 6px var(--live); z-index: 3; pointer-events: none; }
 .tl-times { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.timer-display { cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.timer-display:hover { background: var(--panel2); }
+.timer-display.idle { color: var(--muted); font-size: 13px; font-weight: 600; }
+.timer-pop { display: flex; flex-direction: column; gap: 8px; padding: 6px; width: 280px; }
+.timer-pop select, .timer-pop input { width: auto; }
+.timer-pop .check { font-size: 12px; }
+.menu .timer-pop .btn { display: inline-block; width: auto; text-align: center; background: var(--panel2); border: 1px solid var(--line); padding: 3px 8px; border-radius: 5px; }
+.menu .timer-pop .btn.primary { background: var(--accent); border-color: var(--accent); color: #111; }
+.menu .timer-pop .btn:hover { background: var(--accent-hi); color: #111; }

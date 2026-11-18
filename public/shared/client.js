@@ -116,6 +116,16 @@ export function fmtTime(ms, withSign = false) {
   return (neg && withSign ? '-' : '') + (h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`);
 }
 
+// Le chrono est-il affiché à cet endroit ? (where : 'Regie' | 'Presenter' | 'Remote')
+export function timerVisible(state, where) {
+  const s = state?.settings || {}, t = state?.timer || {};
+  if (s['timerOn' + where] === false) return false;
+  const mode = s.timerShow || 'running';
+  if (mode === 'never') return false;
+  if (mode === 'running') return !!(t.running || t.elapsed > 0);
+  return true;
+}
+
 export function timerValue(timer, now) {
   const elapsed = timer.elapsed + (timer.running ? now - timer.startedAt : 0);
   return timer.mode === 'down' ? timer.duration - elapsed : elapsed;
