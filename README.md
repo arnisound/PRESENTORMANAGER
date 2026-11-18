@@ -35,7 +35,8 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - fondu d'entrée et de sortie (image et son) ;
   - boucle entre ces deux points ;
   - tête de lecture en direct, et clic dans la barre pour se déplacer.
-- **Rogner** : chaque clip peut être rogné en haut, en bas, à gauche et à droite (bordures, bandes noires, barres de titre). La partie gardée remplit le cadre.
+- **Rogner** : en haut, en bas, à gauche et à droite (bordures, bandes noires, barres de titre). Deux modes : « Découper » (l'image reste en place) ou « Recadrer et agrandir ». Options : adoucir les bords, lier haut/bas ou gauche/droite.
+- **Incrustation (fond vert / bleu / couleur au choix)** sur les vidéos, images, caméras, NDI, invités et fenêtres. Le calcul se fait en temps réel sur la carte graphique, avec pipette, similarité, adoucissement et anti-débordement.
 - **Curseurs précis** : case de saisie exacte, molette (Maj = ×10), Maj pendant le glissé pour le réglage fin, double-clic sur le libellé = valeur par défaut.
 - **Panneaux détachables** (↗ dans la barre d'onglets) : Public et visio, Direct, Sorties… s'ouvrent dans une fenêtre séparée, à placer sur un autre écran ou en plein écran (⛶).
 - **Effets** (temps réel) : luminosité, contraste, saturation, teinte, flou, noir & blanc, sépia, négatif, miroirs. Ils se glissent sur un calque ou un clip.

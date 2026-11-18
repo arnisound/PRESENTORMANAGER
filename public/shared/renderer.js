@@ -192,7 +192,10 @@ export class Stage {
     let rt;
     new ResizeObserver(() => {
       clearTimeout(rt);
-      rt = setTimeout(() => { if (this.current && this.current.desc.type === 'slides') { this.current.key = 'stale'; this.update(this.state, this.lastDesc); } }, 200);
+      rt = setTimeout(() => {
+        if (this.current?.desc.cue) applyCrop(this.current.el, this.current.desc.cue);
+        if (this.current && this.current.desc.type === 'slides') { this.current.key = 'stale'; this.update(this.state, this.lastDesc); }
+      }, 200);
     }).observe(root);
   }
 
@@ -286,7 +289,7 @@ class Layer {
     this.el.style.opacity = 0;
     stage.layers.append(this.el);
     this.timers = [];
-    this.ready = this.build(desc).catch((e) => {
+    this.ready = this.build(desc).then(() => { if (desc.cue) { applyCrop(this.el, desc.cue); this.setupKey(); } }).catch((e) => {
       console.warn('Rendu impossible', desc, e);
       this.el.innerHTML = `<div class="placeholder">${esc(e.message || 'Erreur de rendu')}</div>`;
     });
@@ -566,24 +569,26 @@ class Layer {
     requestAnimationFrame(() => this.fadeLoop());
   }
 
-  // Vidéos intégrées à la diapo : démarrent à l'affichage de la diapo, calées
-  // sur l'horloge du serveur pour rester synchrones entre les écrans.
+  // Vidéos intégrées à la diapo : démarrent au début (ou au point de découpe fait dans
+  // PowerPoint) quand la diapo s'affiche, puis jouent normalement — sans recalage qui
+  // pourrait les faire sauter.
   syncSlideMedia() {
-    const st = this.stage.state, client = this.stage.opts.client;
-    const live = st?.live?.program;
-    const onAir = live && live.cueId === this.desc.cue.id && live.slide === this.desc.slide && !st.live.blackout;
-    // Départ à 0 à l'affichage de la diapo sur cet écran (fiable même après de longues pauses).
-    const start = this.slideShownAt ??= onAir || this.active ? (client ? client.now() : Date.now()) : this.builtAt;
-    const now = client ? client.now() : Date.now();
-    for (const m of this.slideMedia) {
-      const dur = m.duration || Infinity;
-      let t = (now - start) / 1000;
-      if (t < 0) continue;
-      if (m.loop && isFinite(dur)) t %= dur;
-      else if (t >= dur) { if (!m.paused) m.pause(); continue; }
-      if (Math.abs(m.currentTime - t) > 2) m.currentTime = t;
-      if (m.paused) m.play().catch(() => { m.muted = true; m.play().catch(() => {}); });
-    }
+    const vids = (this.desc.media?.videos || []).filter((v) => v.slide === this.desc.slide);
+    this.slideMedia.forEach((m, i) => {
+      const info = vids[i] || {};
+      const st = info.start || 0;
+      if (!m.dataset.started) {
+        if (m.readyState < 1) return; // métadonnées pas encore chargées
+        m.dataset.started = '1';
+        m.currentTime = st;
+        m.play().catch(() => { m.muted = true; m.play().catch(() => {}); });
+        return;
+      }
+      if (info.trimEnd && m.currentTime >= info.trimEnd) {
+        if (m.loop) m.currentTime = st;
+        else if (!m.paused) m.pause();
+      }
+    });
   }
 
   update(desc, state) {
@@ -592,6 +597,7 @@ class Layer {
     if (desc.type === 'color') this.el.style.background = desc.cue.color || '#000';
     if (this.webview) { try { this.webview.setZoomFactor(desc.cue.zoom || 1); this.webview.setAudioMuted(!!this.stage.opts.monitor || !this.stage.opts.audio); } catch {} }
     if (this.stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
+    if (this.built && desc.cue) this.setupKey();
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
       this.video.loop = this.loops(desc.cue);
@@ -727,8 +733,22 @@ class Layer {
     });
   }
 
+  // Incrustation (fond vert / bleu / couleur au choix).
+  setupKey() {
+    this.built = true;
+    const k = this.desc.cue?.key;
+    if (!k?.on) { if (this.keyer) { this.keyer.stop(); this.keyer = null; } return; }
+    const src = this.el.querySelector('video, img, canvas:not(.keyed)');
+    if (!src) return;
+    if (!this.keyer || this.keyer.src !== src) { this.keyer?.stop(); this.keyer = new Keyer(src, k); }
+    this.keyer.params = k;
+    this.keyer.canvas.style.objectFit = this.desc.cue.fit === 'cover' ? 'cover' : this.desc.cue.fit === 'fill' ? 'fill' : 'contain';
+    applyCrop(this.el, this.desc.cue);
+  }
+
   destroy() {
     this.destroyed = true;
+    this.keyer?.stop();
     clearInterval(this.syncTimer);
     clearInterval(this.slideTimer);
     this.webview?.remove();
@@ -839,14 +859,121 @@ function applyClipStyle(el, cue) {
   el.style.transform = transformCss(cue.transform, fx.transform);
   el.style.filter = fx.filter;
   el.style.clipPath = MASK_CSS[cue.mask] || '';
-  // Rognage (bordures, bandes noires…) : la partie gardée remplit le cadre du clip.
+  applyCrop(el, cue);
+}
+
+// Rognage. « Découper » (par défaut) : les bords sont masqués, l'image reste en place
+// et à la même taille. « Remplir » : la partie gardée est agrandie pour remplir le cadre.
+function applyCrop(el, cue) {
   const c = cue.crop || {};
   const crop = c.t || c.r || c.b || c.l;
-  el.style.setProperty('--crop', crop ? `inset(${c.t || 0}% ${c.r || 0}% ${c.b || 0}% ${c.l || 0}%)` : 'none');
-  if (crop && el.querySelector('webview, iframe')) {
+  const fill = crop && c.mode === 'fill';
+  el.style.setProperty('--crop', fill ? `inset(${c.t || 0}% ${c.r || 0}% ${c.b || 0}% ${c.l || 0}%)` : 'none');
+  // Masque « découper » calculé sur la zone réellement occupée par l'image (hors bandes noires).
+  if (crop && !fill) {
+    const t = el.querySelector('.slide-box, canvas.keyed, video, img, canvas.fit, webview, iframe');
+    const W = el.offsetWidth, H = el.offsetHeight;
+    if (t && W && H) {
+      let x = t.offsetLeft, y = t.offsetTop, w = t.offsetWidth, h = t.offsetHeight;
+      const nw = t.videoWidth || t.naturalWidth || (t.tagName === 'CANVAS' ? t.width : 0);
+      const nh = t.videoHeight || t.naturalHeight || (t.tagName === 'CANVAS' ? t.height : 0);
+      const fit = getComputedStyle(t).objectFit;
+      if (nw && nh && fit === 'contain' && !t.classList.contains('slide-box')) {
+        const r = Math.min(w / nw, h / nh);
+        x += (w - nw * r) / 2; y += (h - nh * r) / 2; w = nw * r; h = nh * r;
+      }
+      const f = ((c.feather || 0) / 100) * Math.min(w, h);
+      const L = x + (w * (c.l || 0)) / 100, R = W - (x + w) + (w * (c.r || 0)) / 100;
+      const T = y + (h * (c.t || 0)) / 100, B = H - (y + h) + (h * (c.b || 0)) / 100;
+      const g = (dir, d) => `linear-gradient(${dir}, transparent ${d.toFixed(1)}px, #000 ${(d + f + 0.5).toFixed(1)}px)`;
+      const m = [g('to right', L), g('to left', R), g('to bottom', T), g('to top', B)].join(', ');
+      el.style.maskImage = el.style.webkitMaskImage = m;
+      el.style.maskComposite = 'intersect';
+      el.style.webkitMaskComposite = 'source-in';
+    }
+  } else { el.style.maskImage = el.style.webkitMaskImage = ''; }
+  if (fill && el.querySelector('webview, iframe')) {
     // Pages web : pas de « view box » possible, on agrandit et on découpe.
     const sx = 100 / (100 - (c.l || 0) - (c.r || 0)), sy = 100 / (100 - (c.t || 0) - (c.b || 0));
     el.style.setProperty('--web-crop', `translate(${-(c.l || 0) * sx}%, ${-(c.t || 0) * sy}%) scale(${sx}, ${sy})`);
   } else el.style.removeProperty('--web-crop');
   if (cue.fit) el.dataset.fit = cue.fit; else delete el.dataset.fit;
+}
+
+// ---------------------------------------------------------------- incrustation (chroma key)
+// Calcul en WebGL, image par image : distance de couleur en chrominance (Cb/Cr),
+// avec similarité, adoucissement et suppression du débordement de couleur (spill).
+const KEY_FS = `precision mediump float;
+varying vec2 uv; uniform sampler2D t; uniform vec3 key; uniform float sim, smooth, spill;
+vec2 cbcr(vec3 c) { return vec2(-0.169 * c.r - 0.331 * c.g + 0.5 * c.b, 0.5 * c.r - 0.419 * c.g - 0.081 * c.b); }
+void main() {
+  vec4 c = texture2D(t, uv);
+  float d = distance(cbcr(c.rgb), cbcr(key));
+  float base = d - sim;
+  float a = pow(clamp(base / max(smooth, 0.001), 0.0, 1.0), 1.5);
+  float sp = pow(clamp(base / max(spill, 0.001), 0.0, 1.0), 1.5);
+  float gray = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  gl_FragColor = vec4(mix(vec3(gray), c.rgb, sp), a * c.a);
+}`;
+const KEY_VS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = vec2((p.x+1.0)/2.0, (1.0-p.y)/2.0); gl_Position = vec4(p,0.0,1.0); }';
+
+class Keyer {
+  constructor(src, params) {
+    this.src = src;
+    this.params = params;
+    const c = (this.canvas = document.createElement('canvas'));
+    c.className = 'keyed';
+    src.after(c);
+    src.classList.add('key-src');
+    const gl = (this.gl = c.getContext('webgl', { premultipliedAlpha: false, alpha: true }));
+    if (!gl) { c.remove(); src.classList.remove('key-src'); return; }
+    const sh = (type, code) => { const x = gl.createShader(type); gl.shaderSource(x, code); gl.compileShader(x); return x; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, KEY_VS));
+    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, KEY_FS));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    this.u = { key: gl.getUniformLocation(prog, 'key'), sim: gl.getUniformLocation(prog, 'sim'), smooth: gl.getUniformLocation(prog, 'smooth'), spill: gl.getUniformLocation(prog, 'spill') };
+    this.alive = true;
+    this.tick();
+  }
+
+  tick() {
+    if (!this.alive) return;
+    const s = this.src, gl = this.gl;
+    const w = s.videoWidth || s.naturalWidth || s.width, h = s.videoHeight || s.naturalHeight || s.height;
+    const ready = s.tagName === 'VIDEO' ? s.readyState >= 2 : s.tagName === 'IMG' ? s.complete : true;
+    if (w && h && ready) {
+      const scale = Math.min(1, 1920 / w);
+      const cw = Math.round(w * scale), ch = Math.round(h * scale);
+      if (this.canvas.width !== cw || this.canvas.height !== ch) { this.canvas.width = cw; this.canvas.height = ch; }
+      gl.viewport(0, 0, cw, ch);
+      try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, s); } catch { /* image pas encore prête */ }
+      const p = this.params || {};
+      const hex = (p.color || '#00ff00').replace('#', '');
+      gl.uniform3f(this.u.key, parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255);
+      // Réglages exprimés de 0 à 100 dans l'interface.
+      gl.uniform1f(this.u.sim, (p.similarity ?? 40) / 250);
+      gl.uniform1f(this.u.smooth, (p.smoothness ?? 8) / 250);
+      gl.uniform1f(this.u.spill, (p.spill ?? 10) / 250);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    if (s.requestVideoFrameCallback && s.tagName === 'VIDEO' && !s.paused) s.requestVideoFrameCallback(() => this.tick());
+    else requestAnimationFrame(() => this.tick());
+  }
+
+  stop() {
+    this.alive = false;
+    this.canvas.remove();
+    this.src.classList.remove('key-src');
+  }
 }

@@ -11,7 +11,7 @@ import multer from 'multer';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
-import { processMedia, kindOf, officeConverters, queueVideo } from './media.js';
+import { processMedia, kindOf, officeConverters, queueVideo, pptxNotes, pptxMedia } from './media.js';
 import { prepareVideo, optimizeVideo, ffmpeg, probeFull } from './video.js';
 import { startNdiDiscovery } from './ndi.js';
 
@@ -35,6 +35,14 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
   for (const m of store.state.media) {
     if (m.optimize) m.optimize = null;
     if (m.kind === 'video' && !m.thumb && ffmpeg()) queueVideo(() => prepareVideo(m, path.join(mediaDirPath, m.file), mediaDirPath, () => store.emit()));
+    // PowerPoint importés avant la correction des diapos masquées : notes et vidéos réanalysées.
+    if (m.kind === 'slides' && m.source && /\.(pptx|ppsx)$/i.test(m.source) && (m.pptxV || 0) < 2) {
+      try {
+        m.notes = pptxNotes(path.join(mediaDirPath, m.source));
+        m.videos = pptxMedia(path.join(mediaDirPath, m.source), mediaDirPath, m.id);
+        m.pptxV = 2;
+      } catch {}
+    }
     if (m.kind === 'audio' && m.duration == null && ffmpeg()) queueVideo(async () => { m.duration = (await probeFull(path.join(mediaDirPath, m.file))).duration; store.emit(); });
   }
   const mediaDir = path.join(dataDir, 'media');

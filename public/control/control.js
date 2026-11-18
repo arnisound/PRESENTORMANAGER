@@ -257,7 +257,8 @@ function renderTransport() {
 // ------------------------------------------------------------------ propriétés
 // Curseur : glisser (Maj = plus fin), molette pour ajuster, case pour saisir la valeur exacte,
 // double-clic sur le libellé = valeur par défaut.
-const DEFAULTS = { opacity: 1, volume: 1, master: 1, speed: 1, 'transform.x': 0, 'transform.y': 0, 'transform.scale': 1, 'transform.rotate': 0 };
+const DEFAULTS = { opacity: 1, volume: 1, master: 1, speed: 1, 'transform.x': 0, 'transform.y': 0, 'transform.scale': 1, 'transform.rotate': 0,
+  'crop.t': 0, 'crop.b': 0, 'crop.l': 0, 'crop.r': 0, 'crop.feather': 0, 'key.similarity': 40, 'key.smoothness': 8, 'key.spill': 10 };
 function sliderRow(label, bind, value, min, max, step, unit = '') {
   const key = bind.split(':')[1];
   return `<div class="slider"><span data-reset="${bind}" data-def="${DEFAULTS[key] ?? ''}" title="Double-clic : valeur par défaut">${label}</span>
@@ -426,10 +427,25 @@ function clipProps() {
   }
   if (!['audio', 'black', 'color'].includes(c.type)) {
     const cr = c.crop || {};
-    h += `<div class="box"><b>Rogner</b><span class="hint">Retire les bordures, bandes noires, barres de titre… La partie gardée remplit le cadre.</span>
-      ${sliderRow('Haut', 'clip:crop.t', cr.t || 0, 0, 45, 0.5, '%')}${sliderRow('Bas', 'clip:crop.b', cr.b || 0, 0, 45, 0.5, '%')}
-      ${sliderRow('Gauche', 'clip:crop.l', cr.l || 0, 0, 45, 0.5, '%')}${sliderRow('Droite', 'clip:crop.r', cr.r || 0, 0, 45, 0.5, '%')}
-      <div class="row"><button class="btn sm" data-act="crop-reset">Annuler le rognage</button></div></div>`;
+    h += `<div class="box"><div class="box-head"><b>Rogner</b>
+        <select data-crop-opt="mode">${sel_([['', 'Découper (l\'image reste en place)'], ['fill', 'Recadrer et agrandir pour remplir']], cr.mode || '')}</select></div>
+      ${sliderRow('Haut', 'clip:crop.t', cr.t || 0, 0, 49, 0.5, '%')}${sliderRow('Bas', 'clip:crop.b', cr.b || 0, 0, 49, 0.5, '%')}
+      ${sliderRow('Gauche', 'clip:crop.l', cr.l || 0, 0, 49, 0.5, '%')}${sliderRow('Droite', 'clip:crop.r', cr.r || 0, 0, 49, 0.5, '%')}
+      ${sliderRow('Adoucir les bords', 'clip:crop.feather', cr.feather || 0, 0, 25, 0.5, '%')}
+      <div class="row wrap">${check('Lier haut et bas', 'data-crop-opt="linkV"', cr.linkV)}${check('Lier gauche et droite', 'data-crop-opt="linkH"', cr.linkH)}
+        <span class="spacer"></span><button class="btn sm" data-act="crop-reset">Annuler le rognage</button></div></div>`;
+  }
+  if (['video', 'image', 'camera', 'ndi', 'guest', 'window'].includes(c.type)) {
+    const k = c.key || {};
+    h += `<div class="box"><div class="box-head"><b>Incrustation (fond vert)</b>${check('Activer', 'data-key-opt="on"', k.on)}</div>
+      <div class="row wrap">
+        <input type="color" data-key-opt="color" value="${esc(k.color || '#00ff00')}" style="width:46px;height:28px;padding:2px">
+        <button class="btn sm" data-act="key-color" data-color="#00ff00">Vert</button><button class="btn sm" data-act="key-color" data-color="#0047bb">Bleu</button>
+        ${'EyeDropper' in window ? '<button class="btn sm" data-act="key-pick" title="Cliquez ensuite sur la couleur à retirer, par ex. dans l\'aperçu">🎯 Pipette</button>' : ''}</div>
+      ${sliderRow('Similarité', 'clip:key.similarity', k.similarity ?? 40, 0, 100, 1)}
+      ${sliderRow('Adoucissement', 'clip:key.smoothness', k.smoothness ?? 8, 0, 100, 1)}
+      ${sliderRow('Anti-débordement', 'clip:key.spill', k.spill ?? 10, 0, 100, 1)}
+      <span class="hint">Retire une couleur unie (fond vert, bleu ou autre) : seul le sujet reste, posé sur les calques du dessous. Augmentez « Similarité » si du fond reste visible, baissez-la si le sujet se troue.</span></div>`;
   }
   h += transformBlock('clip', c.transform);
   h += effectsBlock('clip', c.effects, c.mask);
@@ -771,7 +787,15 @@ document.addEventListener('click', async (e) => {
     'panel-fullscreen': () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
     'tl-mark': () => { const pos = c && clipPosition(c); if (pos == null) return toast('Lancez le clip (ou sélectionnez-le pour l\'aperçu) pour marquer la position'); send({ type: 'cue.update', id: c.id, patch: { [b.dataset.k]: Math.round(pos * 100) / 100 } }); },
     'tl-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { inPoint: 0, outPoint: null, fadeIn: 0, fadeOut: 0 } }),
-    'crop-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { crop: { t: 0, r: 0, b: 0, l: 0 } } }),
+    'crop-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { crop: { ...(c.crop || {}), t: 0, r: 0, b: 0, l: 0, feather: 0 } } }),
+    'key-color': () => c && send({ type: 'cue.update', id: c.id, patch: { key: { ...(c.key || {}), on: true, color: b.dataset.color } } }),
+    'key-pick': async () => {
+      if (!c) return;
+      try {
+        const r = await new window.EyeDropper().open();
+        send({ type: 'cue.update', id: c.id, patch: { key: { ...(c.key || {}), on: true, color: r.sRGBHex } } });
+      } catch { /* annulé */ }
+    },
     'media-optimize': () => { send({ type: 'media.optimize', id, height: Number(b.dataset.h) || undefined }); toast('Optimisation lancée en arrière-plan : le clip bascule tout seul sur la nouvelle version.'); },
     'reset-transform': () => setTarget(b.dataset.target, { transform: { x: 0, y: 0, scale: 1, rotate: 0 } }),
     'fx-remove': () => { const o = targetObj(b.dataset.target); setTarget(b.dataset.target, { effects: o.effects.filter((_, i) => i !== +b.dataset.i) }); },
@@ -851,6 +875,15 @@ const pendingBound = new Map();
 let boundRaf = 0;
 function sendBound(bind, v) {
   const [target, path] = bind.split(':');
+  const cr = target === 'clip' && path.startsWith('crop.') ? selCue()?.crop : null;
+  const twin = cr && ((cr.linkV && { 'crop.t': 'crop.b', 'crop.b': 'crop.t' }[path]) || (cr.linkH && { 'crop.l': 'crop.r', 'crop.r': 'crop.l' }[path]));
+  if (twin && !sendBound.linking) {
+    // Côté opposé lié : même valeur, curseur et case mis à jour.
+    sendBound.linking = true;
+    for (const el of document.querySelectorAll(`[data-bind="clip:${twin}"]`)) el.value = el.type === 'number' ? fmt2(v) : v;
+    sendBound('clip:' + twin, v);
+    sendBound.linking = false;
+  }
   const obj = targetObj(target);
   if (obj && path.includes('.')) { const [a, b2] = path.split('.'); obj[a] = { ...(obj[a] || {}), [b2]: v }; } else if (obj) obj[path] = v;
   pendingBound.set(bind, () => setTarget(target, setPath(obj, path, v)));
@@ -940,6 +973,13 @@ document.addEventListener('change', (e) => {
     return send({ type: 'comp.layer.update', id: l.id, patch: { auxOutputs: [...aux] } });
   }
   if (el.dataset.ret) return applyReturn(el.dataset.ret, el.value);
+  if (el.dataset.cropOpt || el.dataset.keyOpt) {
+    const c = selCue();
+    if (!c) return;
+    const [field, k] = el.dataset.cropOpt ? ['crop', el.dataset.cropOpt] : ['key', el.dataset.keyOpt];
+    const v = el.type === 'checkbox' ? el.checked : el.value || null;
+    return send({ type: 'cue.update', id: c.id, patch: { [field]: { ...(c[field] || {}), [k]: v } } });
+  }
   if (el.dataset.layerName !== undefined) return send({ type: 'comp.layer.update', id: selLayerId, patch: { name: el.value } });
   if (el.dataset.cueField) {
     const c = selCue();

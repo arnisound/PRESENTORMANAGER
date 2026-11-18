@@ -166,9 +166,12 @@ function openPptx(file) {
   };
   const presXml = read('ppt/presentation.xml');
   const presRels = rels('ppt/presentation.xml');
-  const slides = [...presXml.matchAll(/<p:sldId\b[^>]*r:id="([^"]+)"/g)].map((m) => presRels[m[1]]?.target).filter(Boolean);
+  const all = [...presXml.matchAll(/<p:sldId\b[^>]*r:id="([^"]+)"/g)].map((m) => presRels[m[1]]?.target).filter(Boolean);
+  // Les diapos masquées ne sont pas exportées dans le PDF : on les ignore pour que
+  // notes et vidéos restent sur la bonne page.
+  const slides = all.filter((p) => !/<p:sld\b[^>]*\bshow="(0|false)"/.test(read(p).slice(0, 2000)));
   const size = /<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"/.exec(presXml);
-  return { zip, read, rels, slides, cx: size ? +size[1] : 12192000, cy: size ? +size[2] : 6858000 };
+  return { zip, read, rels, slides, hidden: all.length - slides.length, cx: size ? +size[1] : 12192000, cy: size ? +size[2] : 6858000 };
 }
 
 // Notes du présentateur d'un .pptx, dans l'ordre réel des diapositives.
@@ -214,6 +217,10 @@ export function pptxMedia(file, mediaDir, mediaId) {
         // Réglages de lecture dans la chronologie de la diapo (volume, muet, boucle).
         const node = [...xml.matchAll(/<p:cMediaNode\b([^>]*)>([\s\S]*?)<\/p:cMediaNode>/g)].find((n) => n[2].includes(`spid="${spid}"`));
         const vol = node && /vol="(\d+)"/.exec(node[1]);
+        // Découpage fait dans PowerPoint (« Découper la vidéo ») : début / fin en ms.
+        const trim = /<p14:trim\b([^>]*)\/?>/.exec(pic);
+        const trimSt = trim && /st="(\d+(?:\.\d+)?)"/.exec(trim[1]);
+        const trimEnd = trim && /end="(\d+(?:\.\d+)?)"/.exec(trim[1]);
         const name = `${mediaId}_s${si + 1}_${out.length + 1}${path.extname(rel.target).toLowerCase() || '.mp4'}`;
         fs.writeFileSync(path.join(mediaDir, name), entry.getData());
         out.push({
@@ -225,6 +232,8 @@ export function pptxMedia(file, mediaDir, mediaId) {
           volume: vol ? Math.min(1, +vol[1] / 100000) : 1,
           muted: !!(node && /mute="1"/.test(node[1])),
           loop: !!(node && /repeatCount="indefinite"/.test(node[2])),
+          start: trimSt ? +trimSt[1] / 1000 : 0,
+          trimEnd: trimEnd ? +trimEnd[1] / 1000 : 0,
         });
       }
     });
@@ -251,6 +260,7 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
       if (/\.(pptx|ppsx)$/i.test(media.name)) {
         media.notes = pptxNotes(filePath);
         media.videos = pptxMedia(filePath, mediaDir, media.id);
+        media.pptxV = 2;
       }
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'presenthor-'));
       const src = path.join(work, 'source' + path.extname(media.name).toLowerCase());

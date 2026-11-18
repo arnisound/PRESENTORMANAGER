@@ -105,3 +105,8 @@ blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; 
 .web-error { position: absolute; inset: auto 4% 6% 4%; background: rgba(127,29,29,.92); color: #fff; padding: 1.5cqh 2cqw; border-radius: 1cqh;
   display: flex; flex-direction: column; gap: .5cqh; font: 500 clamp(10px, 1.6cqw, 22px) system-ui, sans-serif; z-index: 3; }
 .web-error small { opacity: .8; word-break: break-all; }
+
+/* Incrustation : la source reste lue mais invisible, l'image détourée est affichée par-dessus */
+.layer .key-src { opacity: 0 !important; }
+.layer canvas.keyed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-view-box: var(--crop, none); }
+.layer .slide-box canvas.keyed { position: absolute; }
