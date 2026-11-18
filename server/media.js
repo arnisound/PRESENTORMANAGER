@@ -24,6 +24,7 @@ export function findSoffice() {
   const candidates = [
     process.env.SOFFICE_PATH,
     '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+    path.join(os.homedir(), 'Applications/LibreOffice.app/Contents/MacOS/soffice'),
     'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
     'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
     '/usr/bin/soffice',
@@ -34,21 +35,102 @@ export function findSoffice() {
   return candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
 }
 
-// Une seule conversion à la fois : LibreOffice n'aime pas les instances parallèles.
+const exists = (p) => { try { fs.statSync(p); return true; } catch { return false; } };
+const run = (cmd, args, timeout = 240000) => new Promise((res) => execFile(cmd, args, { timeout, windowsHide: true }, (err, out, errOut) => res({ err, out: String(out || ''), errOut: String(errOut || '') })));
+
+// Logiciels capables de convertir une présentation en PDF sur cette machine, par ordre de préférence.
+let officeCache = null;
+export async function officeConverters() {
+  if (officeCache) return officeCache;
+  const list = [];
+  if (findSoffice()) list.push('libreoffice');
+  if (process.platform === 'win32') {
+    const r = await run('reg', ['query', 'HKCR\\PowerPoint.Application'], 10000);
+    if (!r.err) list.push('powerpoint');
+  }
+  if (process.platform === 'darwin') {
+    if (exists('/Applications/Microsoft PowerPoint.app')) list.push('powerpoint');
+    if (exists('/Applications/Keynote.app')) list.push('keynote');
+  }
+  officeCache = list;
+  setTimeout(() => { officeCache = null; }, 60000); // réévalué si l'utilisateur installe un logiciel
+  return list;
+}
+
+const ps = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+const as = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+
+async function viaLibreOffice(input, outDir) {
+  const soffice = findSoffice();
+  const profile = 'file://' + path.join(os.tmpdir(), 'presenthor-lo-profile').replace(/\\/g, '/');
+  const r = await run(soffice, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', 'pdf', '--outdir', outDir, input], 180000);
+  const out = path.join(outDir, path.basename(input).replace(/\.[^.]+$/, '.pdf'));
+  if (exists(out)) return out;
+  throw new Error('LibreOffice : ' + (r.errOut || r.err?.message || 'conversion échouée').trim().slice(0, 200));
+}
+
+// Windows : PowerPoint via automatisation COM (enregistrer sous PDF).
+async function viaPowerPointWin(input, outDir) {
+  const out = path.join(outDir, 'presentation.pdf');
+  const script = `$ErrorActionPreference='Stop'
+$app = New-Object -ComObject PowerPoint.Application
+$p = $app.Presentations.Open(${ps(input)}, -1, 0, 0)
+$p.SaveAs(${ps(out)}, 32)
+$p.Close()
+if ($app.Presentations.Count -eq 0) { $app.Quit() }`;
+  const file = path.join(outDir, 'convert.ps1');
+  fs.writeFileSync(file, script);
+  const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file]);
+  if (exists(out)) return out;
+  throw new Error('PowerPoint : ' + (r.errOut || r.err?.message || 'conversion échouée').trim().slice(0, 200));
+}
+
+// macOS : PowerPoint ou Keynote sont « bac à sable » : on travaille dans leur
+// propre dossier pour éviter les demandes d'accès aux fichiers.
+async function viaMacApp(app, input) {
+  const box = app === 'keynote'
+    ? path.join(os.homedir(), 'Library/Containers/com.apple.iWork.Keynote/Data/Documents/PresenThor')
+    : path.join(os.homedir(), 'Library/Group Containers/UBF8T346G9.Office/PresenThor');
+  fs.mkdirSync(box, { recursive: true });
+  const src = path.join(box, 'source-' + Date.now() + path.extname(input));
+  const out = src.replace(/\.[^.]+$/, '.pdf');
+  fs.copyFileSync(input, src);
+  const script = app === 'keynote'
+    ? `tell application "Keynote"
+  set d to open POSIX file ${as(src)}
+  export d to POSIX file ${as(out)} as PDF
+  close d saving no
+end tell`
+    : `tell application "Microsoft PowerPoint"
+  open POSIX file ${as(src)}
+  set p to active presentation
+  save p in POSIX file ${as(out)} as save as PDF
+  close p saving no
+end tell`;
+  const r = await run('osascript', ['-e', script]);
+  try { fs.unlinkSync(src); } catch {}
+  if (exists(out)) return out;
+  throw new Error((app === 'keynote' ? 'Keynote' : 'PowerPoint') + ' : ' + (r.errOut || r.err?.message || 'conversion échouée').trim().slice(0, 200));
+}
+
+// Une seule conversion à la fois : ces logiciels n'aiment pas les instances parallèles.
 let queue = Promise.resolve();
-export function convertToPdf(input, outDir) {
-  const run = () => new Promise((resolve, reject) => {
-    const soffice = findSoffice();
-    if (!soffice) return reject(new Error('LibreOffice introuvable : installez-le, ou exportez la présentation en PDF.'));
-    const profile = 'file://' + path.join(os.tmpdir(), 'presenthor-lo-profile').replace(/\\/g, '/');
-    execFile(soffice, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', 'pdf', '--outdir', outDir, input],
-      { timeout: 180000 }, (err) => {
-        const out = path.join(outDir, path.basename(input).replace(/\.[^.]+$/, '.pdf'));
-        if (fs.existsSync(out)) resolve(out);
-        else reject(err || new Error('Conversion échouée'));
-      });
-  });
-  const p = queue.then(run, run);
+export function convertToPdf(input, outDir, onStep) {
+  const job = async () => {
+    const list = await officeConverters();
+    if (!list.length) throw new Error('Aucun logiciel de conversion : installez LibreOffice (gratuit) ou PowerPoint, ou exportez la présentation en PDF.');
+    const errors = [];
+    for (const c of list) {
+      onStep?.(c);
+      try {
+        if (c === 'libreoffice') return await viaLibreOffice(input, outDir);
+        if (c === 'powerpoint' && process.platform === 'win32') return await viaPowerPointWin(input, outDir);
+        return await viaMacApp(c, input);
+      } catch (e) { errors.push(e.message); }
+    }
+    throw new Error(errors.join(' · '));
+  };
+  const p = queue.then(job, job);
   queue = p.catch(() => {});
   return p;
 }
@@ -168,7 +250,7 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'presenthor-'));
       const src = path.join(work, 'source' + path.extname(media.name).toLowerCase());
       fs.copyFileSync(filePath, src);
-      const pdf = await convertToPdf(src, work);
+      const pdf = await convertToPdf(src, work, (c) => { media.converter = { libreoffice: 'LibreOffice', powerpoint: 'PowerPoint', keynote: 'Keynote' }[c]; onUpdate(); });
       const finalName = media.id + '.pdf';
       fs.copyFileSync(pdf, path.join(mediaDir, finalName));
       fs.rmSync(work, { recursive: true, force: true });

@@ -17,7 +17,7 @@
   .head { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; }
   .timer { font-size: 34px; font-weight: 800; } .timer.warn { color: #f59e0b; } .timer.over { color: #ef4444; }
   .clock { color: #94a3b8; font-size: 18px; } .off { color: #ef4444; font-size: 13px; }
-  .stage { aspect-ratio: 16/9; border-radius: 8px; outline: 3px solid var(--pgm); }
+  .stage, #stage { aspect-ratio: 16/9; border-radius: 8px; outline: 3px solid var(--pgm); position: relative; }
   .info { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: #94a3b8; }
   .info b { color: #e6e9ef; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .notes { flex: 1; min-height: 60px; overflow: auto; background: #121722; border-radius: 8px; padding: 10px; font-size: 17px; line-height: 1.4; white-space: pre-wrap; }
@@ -37,32 +37,30 @@
   <div class="info"><b id="cur">—</b><span id="count"></span></div>
   <div class="info"><span>Suivant : <b id="next">—</b></span></div>
   <div class="notes" id="notes"></div>
-  <div class="row"><button id="black">Écran noir</button><button id="take">TAKE preview</button></div>
+  <div class="row"><button id="black">Écran noir</button><button id="take">Tout vider</button></div>
   <div class="pad"><button id="prev">◀</button><button id="nextBtn" class="next">SUIVANT ▶</button></div>
 <script type="module">
 import { Client, fmtTime, timerValue } from '/shared/client.js';
-import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
+import { Stage, describe } from '/shared/renderer.js';
+import { CompositionView, deckInfo } from '/shared/composition.js';
 const $ = (s) => document.getElementById(s);
 let S;
 const client = new Client({ role: 'control', onState: render, onStatus: (s) => ($('off').hidden = s === 'online') });
-const stage = new Stage($('stage'), { client, monitor: true });
+const stage = new CompositionView($('stage'), { client, monitor: true, overlays: true });
 const act = (type) => { navigator.vibrate?.(15); client.send({ type }); };
 $('nextBtn').onclick = () => act('next');
 $('prev').onclick = () => act('prev');
 $('black').onclick = () => act('blackout.toggle');
-$('take').onclick = () => act('take');
+$('take').onclick = () => act('comp.clear');
 function render(s) {
   S = s;
-  const pos = s.live.program;
-  stage.update(s, describe(s, pos, { blackout: s.live.blackout, logo: s.live.logo }));
-  const cue = s.cues.find((c) => c.id === pos?.cueId);
-  const n = stepFrom(s, pos, 1);
-  const nc = s.cues.find((c) => c.id === n?.cueId);
-  $('cur').textContent = cue?.name || '—';
-  $('next').textContent = nc ? nc.name + (n.cueId === pos?.cueId ? ' · diapo ' + n.slide : '') : 'fin';
-  const m = cue?.type === 'slides' ? s.media.find((x) => x.id === cue.mediaId) : null;
-  $('count').textContent = m ? pos.slide + ' / ' + m.pages : '';
-  $('notes').textContent = notesFor(s, pos);
+  stage.update(s);
+  const d = deckInfo(s);
+  const col = s.live.comp?.column;
+  $('cur').textContent = d ? d.cue.name : col != null ? s.comp.columns[col]?.name : '—';
+  $('next').textContent = d?.next ? 'diapo ' + d.next : (col != null && s.comp.columns[col + 1] ? s.comp.columns[col + 1].name : 'fin');
+  $('count').textContent = d ? d.slide + ' / ' + d.pages : '';
+  $('notes').textContent = d?.notes || '';
   $('black').classList.toggle('on', s.live.blackout);
 }
 setInterval(() => {

@@ -53,3 +53,13 @@ body.idle { cursor: none; }
 .zone-test svg { width: 100%; height: 100%; display: block; }
 .preview-mode body, html.preview-mode { cursor: default; }
 .picker-logo { width: 96px; height: 96px; display: block; margin-bottom: 8px; }
+.fill, #app > .comp { position: absolute; inset: 0; }
+.p-comp, .mv-comp { flex: 1; position: relative; border-radius: 6px; }
+.p-current .p-comp { outline: 3px solid #dc2626; }
+.multiview { grid-template-columns: 1.6fr 1fr; grid-template-rows: auto 1fr; }
+.mv-cell.pgm { grid-row: 2; }
+.mv-layers { grid-row: 2; display: flex; flex-direction: column; gap: 1vh; min-height: 0; overflow: hidden; }
+.mv-layers .mv-cell { flex: 1; min-height: 0; }
+.mv-layers .mv-cell .mv-comp { outline: 2px solid #334155; }
+.mv-layers .mv-cell.off { opacity: .45; }
+.mv-cell.pgm .mv-comp { outline: 3px solid #dc2626; }

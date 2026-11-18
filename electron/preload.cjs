@@ -132,4 +132,9 @@ contextBridge.exposeInMainWorld('presenthor', {
   closeOutput: (id) => ipcRenderer.invoke('output:close', id),
   identifyDisplays: () => ipcRenderer.invoke('displays:identify'),
   onDisplaysChanged: (fn) => ipcRenderer.on('displays:changed', (e, list) => fn(list)),
+  setOutputFullscreen: (id, on) => ipcRenderer.invoke('output:fullscreen', on ? 'on' : 'off', id),
+  outputsState: () => ipcRenderer.invoke('outputs:state'),
+  // Depuis une fenêtre de sortie
+  exitOutputFullscreen: () => ipcRenderer.invoke('output:fullscreen', 'off'),
+  toggleOutputFullscreen: () => ipcRenderer.invoke('output:fullscreen', 'toggle'),
 });

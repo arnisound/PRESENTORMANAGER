@@ -3,6 +3,7 @@
 import { Client, bindClicker, esc, fmtTime, timerValue } from '/shared/client.js';
 import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
 import { quadMatrix, blendMask, testPatternSvg, DEFAULT_CORNERS } from '/shared/mapping.js';
+import { CompositionView, deckInfo } from '/shared/composition.js';
 
 const params = new URLSearchParams(location.search);
 const outputId = params.get('id');
@@ -47,8 +48,18 @@ function baseOpts(out) {
   return { client, audio: !!out.audio && !previewMode, monitor: previewMode, onAutoplayBlocked };
 }
 
-// Contenu d'une source "écran" (programme, programme sans habillage, preview, élément fixe).
+// Contenu d'une source "écran" : composition (programme), composition sans habillage,
+// calque isolé, élément fixe. ("preview" : ancien mode conducteur.)
 function makeSourceStage(el, source, opts) {
+  if (source === 'program' || source === 'clean' || source.startsWith('layer:')) {
+    const view = new CompositionView(el, {
+      ...opts,
+      reportEnded: !previewMode && source === 'program',
+      overlays: source === 'program',
+      only: source.startsWith('layer:') ? source.slice(6) : null,
+    });
+    return (s) => view.update(s);
+  }
   if (source.startsWith('cue:')) {
     const stage = new Stage(el, { ...opts, free: true });
     const cueId = source.slice(4);
@@ -77,7 +88,7 @@ function mappingView(opts) {
     const list = out.zones || [];
     for (const [id, z] of zones) if (!list.some((x) => x.id === id)) { z.stage?.destroy?.(); z.el.remove(); zones.delete(id); }
     list.forEach((zd, i) => {
-      const src = zd.source || (['presenter', 'multiview'].includes(out.source) ? 'program' : out.source);
+      const src = zd.source || (['presenter', 'multiview', 'preview'].includes(out.source) ? 'program' : out.source);
       let z = zones.get(zd.id);
       if (!z || z.src !== src) {
         z?.el.remove();
@@ -128,6 +139,7 @@ function createView(source, out) {
   if (source === 'presenter') return presenterView(opts);
   if (source === 'multiview') return multiView(opts);
   const el = document.createElement('div');
+  el.className = 'fill';
   app.append(el);
   const update = makeSourceStage(el, source, opts);
   // Mire plein écran (calage projecteur) même sans zones de mapping.
@@ -147,12 +159,13 @@ function createView(source, out) {
 function presenterView(opts) {
   app.innerHTML = `<div class="presenter">
     <div class="p-head"><div class="p-clock" data-clock></div><div class="p-timer" data-timer></div><div class="p-count" data-count></div></div>
-    <div class="p-current"><div class="p-label">En cours <b data-cur></b></div><div data-stage-cur></div></div>
-    <div class="p-next"><div class="p-label">Suivant <b data-next></b></div><div data-stage-next></div></div>
+    <div class="p-current"><div class="p-label">À l'écran <b data-cur></b></div><div class="p-comp" data-stage-cur></div></div>
+    <div class="p-next"><div class="p-label">Diapo suivante <b data-next></b></div><div data-stage-next></div></div>
     <div class="p-notes" data-notes></div>
     <div data-msg></div><div data-black></div></div>`;
   const $ = (s) => app.querySelector(s);
-  const cur = new Stage($('[data-stage-cur]'), { ...opts, audio: false, monitor: true }); // pas d'iframe : évite de rejoindre la visio deux fois
+  // Vignettes "monitor" : pas d'iframe (évite de rejoindre une visio deux fois), pas de son.
+  const cur = new CompositionView($('[data-stage-cur]'), { ...opts, audio: false, monitor: true, overlays: true });
   const nxt = new Stage($('[data-stage-next]'), { ...opts, audio: false, monitor: true });
   let state;
   const tick = () => {
@@ -168,17 +181,13 @@ function presenterView(opts) {
     source: 'presenter', audio: false,
     render(s) {
       state = s;
-      const pos = s.live.program;
-      const next = stepFrom(s, pos, 1);
-      cur.update(s, describe(s, pos, { logo: s.live.logo }));
-      nxt.update(s, next ? describe(s, next) : { key: 'end', type: 'placeholder', label: 'Fin du conducteur' });
-      const cue = s.cues.find((c) => c.id === pos?.cueId);
-      const nextCue = s.cues.find((c) => c.id === next?.cueId);
-      $('[data-cur]').textContent = cue?.name || '—';
-      $('[data-next]').textContent = nextCue ? nextCue.name + (next.cueId === pos?.cueId ? ` · diapo ${next.slide}` : '') : '';
-      const media = cue?.type === 'slides' ? s.media.find((m) => m.id === cue.mediaId) : null;
-      $('[data-count]').textContent = media ? `${pos.slide} / ${media.pages || '?'}` : '';
-      $('[data-notes]').textContent = notesFor(s, pos);
+      cur.update(s);
+      const d = deckInfo(s);
+      nxt.update(s, d?.next ? describe(s, { cueId: d.cue.id, slide: d.next }) : { key: 'end', type: 'placeholder', label: d ? 'Dernière diapo' : 'Pas de présentation à l\'écran' });
+      $('[data-cur]').textContent = d ? d.cue.name : '';
+      $('[data-next]').textContent = d?.next ? `${d.next} / ${d.pages}` : '';
+      $('[data-count]').textContent = d ? `${d.slide} / ${d.pages}` : '';
+      $('[data-notes]').textContent = d?.notes || '';
       const msgFresh = s.message && client.now() - s.message.at < 10 * 60 * 1000;
       $('[data-msg]').innerHTML = msgFresh ? `<div class="p-msg">${esc(s.message.text)}</div>` : '';
       $('[data-black]').innerHTML = s.live.blackout ? '<div class="p-black">ÉCRAN NOIR</div>' : '';
@@ -187,15 +196,15 @@ function presenterView(opts) {
   };
 }
 
+// Multiview régie : la sortie + un moniteur par calque.
 function multiView(opts) {
   app.innerHTML = `<div class="multiview">
     <div class="mv-head"><b data-name></b><span data-timer></span><span data-clock></span></div>
-    <div class="mv-cell pvw"><div class="mv-tag">PREVIEW <span data-pvw></span></div><div data-s-pvw></div></div>
-    <div class="mv-cell pgm"><div class="mv-tag">PROGRAMME <span data-pgm></span></div><div data-s-pgm></div></div>
-    <div class="mv-list" data-list></div></div>`;
+    <div class="mv-cell pgm"><div class="mv-tag">SORTIE <span data-pgm></span></div><div class="mv-comp" data-s-pgm></div></div>
+    <div class="mv-layers" data-layers></div></div>`;
   const $ = (s) => app.querySelector(s);
-  const pvw = new Stage($('[data-s-pvw]'), { ...opts, audio: false, monitor: true });
-  const pgm = new Stage($('[data-s-pgm]'), { ...opts, monitor: true });
+  const pgm = new CompositionView($('[data-s-pgm]'), { ...opts, monitor: true, overlays: true });
+  const mons = new Map();
   let state;
   setInterval(() => {
     $('[data-clock]').textContent = new Date(client.now()).toLocaleTimeString('fr-FR');
@@ -206,12 +215,27 @@ function multiView(opts) {
     render(s) {
       state = s;
       $('[data-name]').textContent = s.show.name;
-      pvw.update(s, describe(s, s.live.preview));
-      pgm.update(s, describe(s, s.live.program, { blackout: s.live.blackout, logo: s.live.logo }), s.live.overlay, s.live.blackout ? null : s.live.overlayScenes);
-      const nm = (p) => { const c = s.cues.find((x) => x.id === p?.cueId); return c ? c.name + (c.type === 'slides' ? ` (${p.slide})` : '') : '—'; };
-      $('[data-pvw]').textContent = nm(s.live.preview);
-      $('[data-pgm]').textContent = (s.live.blackout ? 'NOIR · ' : '') + nm(s.live.program);
-      $('[data-list]').innerHTML = s.cues.map((c, i) => `<span class="${c.id === s.live.program?.cueId ? 'pgm' : c.id === s.live.preview?.cueId ? 'pvw' : ''}">${i + 1}. ${esc(c.name)}</span>`).join('');
+      $('[data-pgm]').textContent = s.live.blackout ? 'NOIR' : '';
+      pgm.update(s);
+      const wrap = $('[data-layers]');
+      const layers = [...s.comp.layers].reverse();
+      for (const [id, m] of mons) if (!layers.some((l) => l.id === id)) { m.view.destroy(); m.el.remove(); mons.delete(id); }
+      for (const l of layers) {
+        let m = mons.get(l.id);
+        if (!m) {
+          const el = document.createElement('div');
+          el.className = 'mv-cell';
+          el.innerHTML = '<div class="mv-tag"><span data-n></span><span data-c></span></div><div class="mv-comp"></div>';
+          m = { el, view: new CompositionView(el.querySelector('.mv-comp'), { ...opts, audio: false, monitor: true, only: l.id }) };
+          mons.set(l.id, m);
+        }
+        wrap.append(m.el);
+        const cue = s.cues.find((c) => c.id === s.live.comp?.active?.[l.id]);
+        m.el.querySelector('[data-n]').textContent = l.name;
+        m.el.querySelector('[data-c]').textContent = cue ? cue.name : '—';
+        m.el.classList.toggle('off', !cue || l.bypass);
+        m.view.update(s);
+      }
     },
   };
 }
@@ -231,7 +255,16 @@ function onAutoplayBlocked(unmute) {
 // Ergonomie écran : curseur masqué, double-clic = plein écran.
 let idleT;
 window.addEventListener('mousemove', () => { document.body.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add('idle'), 2000); });
-window.addEventListener('dblclick', () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})));
+// Plein écran : double-clic pour basculer, Échap pour sortir (aussi dans l'app Mac / PC).
+const toggleFs = () => {
+  if (window.presenthor?.toggleOutputFullscreen) return window.presenthor.toggleOutputFullscreen();
+  return document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+};
+window.addEventListener('dblclick', toggleFs);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') window.presenthor?.exitOutputFullscreen?.();
+  if (e.key === 'F11') { e.preventDefault(); toggleFs(); }
+});
 // Évite la mise en veille de l'écran pendant la diffusion (navigateurs compatibles).
 const keepAwake = () => navigator.wakeLock?.request('screen').catch(() => {});
 keepAwake();

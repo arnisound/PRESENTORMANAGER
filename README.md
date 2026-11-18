@@ -14,43 +14,38 @@ Il fonctionne de trois façons, à partir du même code :
 
 ## Fonctions
 
-- **Conducteur** : liste ordonnée des éléments (glisser-déposer pour réordonner), avec un écran *preview* et un écran *programme*, un bouton **TAKE**, et une transition fondu ou cut.
-- **Sans coupure** : chaque contenu est préparé en arrière-plan et ne s'affiche qu'une fois prêt. La diapositive suivante est préchargée. Si le réseau coupe, l'écran garde la dernière image.
-- **PowerPoint / Keynote / PDF**, deux rendus au choix pour chaque présentation :
-  - **Images + vidéos intégrées** (fonctionne partout, y compris en ligne) : conversion automatique (LibreOffice). Les vidéos et sons insérés dans le .pptx sont extraits et rejoués à leur position exacte, au volume défini dans PowerPoint. Les animations ne sont pas conservées.
-  - **PowerPoint natif** (app Mac/PC où PowerPoint est installé) : l'app pilote PowerPoint et capture la fenêtre du diaporama. Animations, transitions, builds et vidéos sont rendus par PowerPoint lui-même, et la télécommande les déclenche une à une. À la fin du diaporama, la régie enchaîne sur l'élément suivant.
-  - Les **notes du présentateur** sont extraites du .pptx dans les deux cas.
-- **Télécommandes de présentation** (Logitech, Kensington…) : elles fonctionnent sur la régie comme sur n'importe quelle sortie (PageUp/PageDown, flèches, B pour l'écran noir). Dans l'app, une option permet de les capter même quand la régie n'a pas le focus.
-- **Télécommande smartphone** (`/remote/`) : suivant / précédent, notes, chrono, écran noir.
-- **Sorties multiples** : chaque sortie affiche au choix :
-  - le *Programme* ;
-  - le *Programme sans habillage* ;
-  - la *Preview* ;
-  - le *Retour présentateur* (diapo en cours, diapo suivante, notes, chrono, messages de la régie) ;
-  - le *Multiview régie* ;
-  - un élément fixe (logo ou boucle vidéo pour les écrans périphériques).
-- **Vidéo** : lecture synchronisée sur toutes les sorties (horloge commune). Lecture en boucle, enchaînement automatique, volume, choix de la sortie qui porte le son.
-- **Scènes et calques** : on compose une image avec plusieurs sources (présentation, vidéo, caméra, NDI, page web…), chacune placée à la position et à la taille voulues. Réglages par calque : opacité, recadrage, ajustement, arrondi. L'éditeur visuel fonctionne à la souris, avec aimantation et préréglages (côte à côte, incrustation, diapo + intervenant, grille). Le calque principal suit suivant / précédent. Une scène à fond transparent peut servir d'**habillage** par-dessus le programme (logo, cadre, caméra en incrustation).
-- **Mapping vidéo** : chaque sortie peut contenir plusieurs zones de projection, avec :
-  - déformation sur 4 coins (trapèze, écran incliné, décor) ;
-  - partie de la source affichée ;
-  - **fondu de bord** corrigé en gamma pour raccorder plusieurs projecteurs ;
-  - mire de calage.
+L'interface fonctionne comme une table de mixage vidéo : une **grille de calques (lignes) et de colonnes**. Chaque case contient un clip, et tous les calques actifs sont mélangés en temps réel.
 
-  L'éditeur affiche la vraie sortie et le projecteur suit en direct.
-- **NDI** (app Mac/PC) :
-  - **entrée** : élément « Source NDI » (image et son), découverte automatique ou par adresse IP ;
-  - **sortie** : chaque sortie peut être publiée en NDI, qu'elle soit affichée sur un écran ou purement virtuelle (rendu hors écran 1920×1080).
-- **Visio** :
-  - page web intégrée (Zoom, Teams, Meet, Jitsi…). L'app desktop lève le blocage d'intégration imposé par certains sites ;
-  - ou, solution recommandée en pro, le PC de visio passé par une **carte d'acquisition HDMI** (élément « Caméra / capture »).
-- **Sondages en direct** : choix unique, choix multiples, note sur 5, nuage de mots. Le QR code s'affiche à l'écran et les résultats se mettent à jour en temps réel.
-- **Questions du public** : modération (valider, rejeter) puis affichage à l'écran.
-- **Direct** :
-  - message au présentateur ;
-  - bandeau nom / fonction (lower-third) ;
-  - compte à rebours ;
-  - écran noir et logo.
+- **Grille de clips** :
+  - un clic sur une vignette déclenche le clip sur son calque ;
+  - un clic sur un en-tête de colonne déclenche toute la colonne (les calques sans clip dans la colonne sont vidés) ;
+  - touches 1 à 9 pour les colonnes ;
+  - glisser-déposer pour déplacer (Alt pour copier) ;
+  - clic droit pour les options.
+- **Calques** (X vider, B masquer, S solo) : opacité, mode de fusion (normal, ajout, écran, produit, incrustation…), volume, transition cut ou fondu, position / échelle / rotation, effets, masques (ovale, cercle, coins arrondis, losange).
+- **Clips** : présentations PowerPoint / Keynote / PDF, vidéos, images, sons, pages web / visio, caméras et cartes d'acquisition, sources NDI, textes, couleurs, QR codes, sondages, questions du public, scènes. Chaque clip a ses propres réglages :
+  - fin de lecture : boucle, une fois, clip suivant, ou vider le calque ;
+  - vitesse et volume ;
+  - cadrage, position, effets et masque.
+- **Effets** (temps réel) : luminosité, contraste, saturation, teinte, flou, noir & blanc, sépia, négatif, miroirs. Ils se glissent sur un calque ou un clip.
+- **Télécommande de présentation** : elle fait avancer la présentation à l'écran. Après la dernière diapo (ou sans présentation), elle passe à la colonne suivante.
+- **Sans coupure** : chaque clip est préparé en arrière-plan avant d'être affiché, et la diapositive suivante est préchargée.
+- **PowerPoint** :
+  - **images + vidéos intégrées** (fonctionne partout). Conversion via LibreOffice, ou à défaut PowerPoint (Windows / Mac) ou Keynote (Mac) ;
+  - **PowerPoint natif** (app Mac / PC avec PowerPoint) : animations et transitions conservées.
+- **Sorties** : chaque sortie affiche au choix :
+  - la composition ;
+  - la composition sans bandeau ;
+  - un calque seul ;
+  - le retour présentateur (écran, diapo suivante, notes, chrono, messages) ;
+  - le multiview (sortie + un moniteur par calque) ;
+  - un clip fixe.
+
+  Chaque sortie peut aussi utiliser le mapping (déformation 4 coins, fondu de bord, mire) et être publiée en NDI.
+- **Plein écran des sorties** (app Mac / PC) : **Échap** ou double-clic dans la sortie pour revenir en fenêtre, **Ctrl+Alt+F** (⌘+Alt+F) depuis n'importe où, ou bouton dans l'onglet *Sorties*.
+- **Public** : sondages en direct (QR code, résultats animés), nuage de mots, questions modérées.
+- **Direct** : message au présentateur, bandeau nom / fonction, chronomètre, écran noir.
+- **Télécommande smartphone** (`/remote/`) : suivant / précédent, notes, chrono.
 
 ## Démarrer
 
@@ -108,7 +103,7 @@ Placez un reverse-proxy HTTPS devant (WebSocket sur `/ws`). Renseignez l'URL pub
 
 | Fonction | Prérequis |
 |---|---|
-| Conversion PowerPoint en images | LibreOffice installé (sinon importer en PDF) |
+| Conversion PowerPoint en images | LibreOffice, ou à défaut PowerPoint (Windows / Mac) ou Keynote (Mac) ; sinon importer en PDF |
 | PowerPoint natif (animations) | App Mac/PC + Microsoft PowerPoint installé sur la même machine. Mac : autoriser l'app dans *Confidentialité → Automatisation* et *Enregistrement de l'écran* |
 | NDI | App Mac/PC. Le module NDI est compilé à l'installation (`npm install`) : Xcode Command Line Tools sur Mac, « Build Tools for Visual Studio » sur Windows |
 
@@ -118,22 +113,23 @@ Sans PowerPoint ou hors de l'app desktop, une présentation réglée en « natif
 
 | Touche | Action |
 |---|---|
-| Entrée / Espace | TAKE (preview → programme) |
-| → / PageDown | Suivant |
-| ← / PageUp | Précédent |
+| 1 … 9 | Déclencher la colonne |
+| → / PageDown | Diapo suivante (puis colonne suivante) |
+| ← / PageUp | Diapo précédente |
 | B | Écran noir |
-| L | Logo |
-| Échap | Vider le programme |
+| Suppr | Retirer le clip sélectionné de sa case |
+| Ctrl+Alt+F (⌘+Alt+F) | Sortir toutes les sorties du plein écran |
 
 ## Architecture
 
 ```
 server/        Serveur Node (Express + WebSocket) : état du show, médias, conversion
-  store.js     Logique de régie (conducteur, scènes, navigation, lecture, sondages, Q&R)
+  store.js     État du show, actions, sondages, Q&R
+  comp.js      Composition : calques × colonnes, déclenchement, lecture, télécommande
   media.js     Import, conversion PowerPoint→PDF, extraction des notes et des vidéos
   ndi.js       Découverte des sources NDI
 public/
-  shared/      Moteur de rendu sans coupure, scènes, mapping + client temps réel
+  shared/      Moteur de rendu sans coupure, composition (calques mélangés), mapping, client temps réel
   control/     Régie
   output/      Sorties (programme, présentateur, multiview…)
   remote/      Télécommande smartphone

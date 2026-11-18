@@ -41,27 +41,51 @@ function openOutput(outputId, displayId) {
     icon: ICON,
     backgroundColor: '#000000',
     show: false,
-    frame: !display,
     autoHideMenuBar: true,
-    ...(display ? { x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height } : { width: 960, height: 540 }),
+    ...(display ? { x: display.bounds.x + 40, y: display.bounds.y + 40, width: 960, height: 540 } : { width: 960, height: 540 }),
     // sandbox désactivé : le preload charge le module natif NDI.
     webPreferences: { backgroundThrottling: false, sandbox: false, preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadURL(`${server.url}/output/?id=${encodeURIComponent(outputId)}`);
+  win.outputDisplayId = display ? display.id : null;
   win.once('ready-to-show', () => {
     win.show();
-    if (display) {
-      win.setBounds(display.bounds);
-      win.setFullScreen(true);
-      // Évite que la fenêtre de sortie passe derrière un autre logiciel.
-      win.setAlwaysOnTop(true, 'screen-saver');
-    }
+    if (display) setOutputFullscreen(win, true);
   });
   win.on('closed', () => { if (outputs.get(outputId) === win) outputs.delete(outputId); });
   win.webContents.once('did-finish-load', () => ndiOut?.sync().catch(() => {}));
   outputs.set(outputId, win);
   prefs.outputs[outputId] = { displayId: display ? display.id : null, open: true };
   savePrefs();
+}
+
+// Plein écran d'une sortie. Échap / double-clic dans la sortie, ou Ctrl+Alt+F
+// (⌘+Alt+F) partout, la remettent en fenêtre. Sur l'écran de la régie, la sortie
+// n'est jamais forcée au premier plan : on garde toujours la main.
+function setOutputFullscreen(win, on) {
+  if (!win || win.isDestroyed()) return;
+  const display = screen.getAllDisplays().find((d) => d.id === win.outputDisplayId) || screen.getDisplayMatching(win.getBounds());
+  const ctrlDisplay = control && !control.isDestroyed() ? screen.getDisplayMatching(control.getBounds()) : null;
+  if (on) {
+    win.setBounds(display.bounds);
+    if (process.platform === 'darwin') win.setSimpleFullScreen(true); // pas de « Space » séparé
+    else win.setFullScreen(true);
+    win.setAlwaysOnTop(ctrlDisplay?.id !== display.id, 'screen-saver');
+  } else {
+    win.setAlwaysOnTop(false);
+    if (process.platform === 'darwin') win.setSimpleFullScreen(false);
+    else win.setFullScreen(false);
+    const b = display.workArea;
+    win.setBounds({ x: b.x + Math.round((b.width - 960) / 2), y: b.y + Math.round((b.height - 540) / 2), width: 960, height: 540 });
+  }
+  win.webContents.send('output:fullscreen', on);
+}
+const isOutputFullscreen = (win) => (process.platform === 'darwin' ? win.isSimpleFullScreen() : win.isFullScreen());
+
+function exitAllFullscreen() {
+  for (const w of outputs.values()) if (!w.isDestroyed() && isOutputFullscreen(w)) setOutputFullscreen(w, false);
+  control?.show();
+  control?.focus();
 }
 
 function closeOutput(outputId, forget = true) {
@@ -83,7 +107,7 @@ function identifyDisplays() {
 function setGlobalClicker(on) {
   prefs.globalClicker = on;
   savePrefs();
-  globalShortcut.unregisterAll();
+  for (const k of ['PageDown', 'PageUp']) if (globalShortcut.isRegistered(k)) globalShortcut.unregister(k);
   if (!on) return;
   // Télécommande active même si la régie n'a pas le focus (ex. opérateur sur un autre logiciel).
   const send = (type) => control?.webContents.executeJavaScript(`window.__presenthorAction && window.__presenthorAction(${JSON.stringify({ type })})`);
@@ -103,6 +127,7 @@ function buildMenu() {
     { role: 'editMenu', label: 'Édition' },
     { label: 'Diffusion', submenu: [
       { label: 'Identifier les écrans', click: identifyDisplays },
+      { label: 'Quitter le plein écran des sorties', accelerator: 'CommandOrControl+Alt+F', click: exitAllFullscreen },
       { label: 'Fermer toutes les sorties', click: () => [...outputs.keys()].forEach((id) => closeOutput(id)) },
       { type: 'checkbox', label: 'Télécommande globale (PageUp/PageDown même hors focus)', checked: prefs.globalClicker, click: (i) => setGlobalClicker(i.checked) },
     ] },
@@ -139,6 +164,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('displays:list', () => displayList());
   ipcMain.handle('output:open', (e, id, displayId) => openOutput(id, displayId));
   ipcMain.handle('output:close', (e, id) => closeOutput(id));
+  ipcMain.handle('output:fullscreen', (e, mode, id) => {
+    const win = id ? outputs.get(id) : BrowserWindow.fromWebContents(e.sender);
+    if (!win || ![...outputs.values()].includes(win)) return false;
+    const on = mode === 'toggle' ? !isOutputFullscreen(win) : mode === 'on';
+    if (on && win.outputDisplayId == null) win.outputDisplayId = screen.getDisplayMatching(win.getBounds()).id;
+    setOutputFullscreen(win, on);
+    return on;
+  });
+  ipcMain.handle('outputs:state', () => Object.fromEntries([...outputs].map(([id, w]) => [id, { open: !w.isDestroyed(), fullscreen: !w.isDestroyed() && isOutputFullscreen(w) }])));
+  // Toujours disponible, même si une sortie plein écran recouvre tout.
+  globalShortcut.register('CommandOrControl+Alt+F', exitAllFullscreen);
   ipcMain.handle('displays:identify', () => identifyDisplays());
   ipcMain.handle('server:url', () => server.url);
   const notify = () => control?.webContents.send('displays:changed', displayList());

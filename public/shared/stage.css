@@ -67,3 +67,21 @@ blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; 
 .scene-inner[data-fit="cover"] .slide-box { width: max(100cqw, calc(var(--ar) * 100cqh)); }
 .scene-inner[data-fit="fill"] .slide-box { width: 100cqw; height: 100cqh; aspect-ratio: auto; }
 .layer-capture video { width: 100%; height: 100%; object-fit: contain; }
+
+/* Composition (calques mélangés en temps réel) */
+.comp { position: relative; overflow: hidden; background: #000; container-type: size; isolation: isolate; }
+.comp-layers, .comp-layer, .comp-overlay, .comp-black { position: absolute; inset: 0; }
+.comp-layer > .stage, .comp-overlay > .stage { position: absolute; inset: 0; }
+.comp-layer { will-change: opacity, transform; }
+.comp-overlay { z-index: 900; pointer-events: none; }
+.comp-black { background: #000; opacity: 0; transition: opacity .35s; z-index: 1000; pointer-events: none; }
+.comp-black.on { opacity: 1; }
+.layer[data-fit="cover"] .fit { object-fit: cover; width: 100%; height: 100%; }
+.layer[data-fit="fill"] .fit { object-fit: fill; width: 100%; height: 100%; }
+.layer[data-fit="cover"] .slide-box { width: max(100cqw, calc(var(--ar) * 100cqh)); }
+.card.transparent { background: none !important; }
+.title-card.transparent h1, .title-card.transparent p { text-shadow: 0 .2cqw 1.2cqw rgba(0,0,0,.6); }
+.qr-card { gap: 2cqh; }
+.qr-box { background: #fff; padding: 1.5cqh; border-radius: 1.5cqh; height: 62cqh; aspect-ratio: 1; }
+.qr-box img { width: 100%; height: 100%; display: block; }
+.qr-caption { font-size: 3.4cqw !important; font-weight: 700; }

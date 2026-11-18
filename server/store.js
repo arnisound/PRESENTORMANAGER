@@ -4,10 +4,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { defaultComp, defaultLiveComp, normalizeComp, compDispatch, compStep } from './comp.js';
 
 export const uid = (p = '') => p + crypto.randomBytes(5).toString('hex');
 
-const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'ndi', 'scene', 'poll', 'qa', 'title', 'black'];
+const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'ndi', 'scene', 'poll', 'qa', 'title', 'black', 'color', 'qr'];
 const SOURCES = ['program', 'preview', 'presenter', 'multiview', 'clean'];
 
 function defaultState() {
@@ -38,7 +39,9 @@ function defaultState() {
       overlayScenes: [], // scènes d'habillage affichées par-dessus le programme
       cueAt: 0, // horloge serveur : passage à l'antenne de l'élément (synchro vidéos des scènes)
       slideAt: 0, // horloge serveur : dernier changement de diapo (vidéos intégrées aux diapos)
+      comp: defaultLiveComp(), // clips actifs de la composition
     },
+    comp: defaultComp(), // grille calques × colonnes
     timer: { mode: 'down', duration: 20 * 60 * 1000, running: false, startedAt: 0, elapsed: 0 },
     message: null, // { text, at } message au présentateur
     polls: [],
@@ -63,10 +66,11 @@ export class Store {
         ...def,
         ...saved,
         settings: { ...def.settings, ...saved.settings },
-        live: { ...def.live, ...saved.live, blackout: false },
+        live: { ...def.live, ...saved.live, blackout: false, comp: { ...defaultLiveComp(), ...saved.live?.comp } },
         timer: { ...def.timer, ...saved.timer },
       };
     } catch { /* premier lancement */ }
+    this.state.comp = normalizeComp(this.state.comp, this.state.cues);
     // Un média resté "converting" après un crash ne finira jamais.
     for (const m of this.state.media) if (m.status === 'converting') m.status = 'error', m.error = 'Conversion interrompue';
     this._saveTimer = null;
@@ -158,9 +162,10 @@ export class Store {
   dispatch(a, role = 'control') {
     const s = this.state;
     const audienceActions = ['vote', 'qa.ask'];
-    const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle', 'output.report'];
+    const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle', 'output.report', 'comp.ended'];
     if (role === 'audience' && !audienceActions.includes(a.type)) return { error: 'forbidden' };
     if (role === 'output' && !outputActions.includes(a.type)) return { error: 'forbidden' };
+    if (a.type?.startsWith('comp.')) return compDispatch(this, a);
 
     switch (a.type) {
       // conducteur
@@ -187,6 +192,8 @@ export class Store {
         s.cues = s.cues.filter((c) => c.id !== a.id);
         for (const c of s.cues) if (c.layers) c.layers = c.layers.filter((l) => l.cueId !== a.id);
         s.live.overlayScenes = s.live.overlayScenes.filter((id) => id !== a.id);
+        for (const l of s.comp.layers) l.clips = l.clips.map((c) => (c === a.id ? null : c));
+        for (const [lid, cid] of Object.entries(s.live.comp.active)) if (cid === a.id) delete s.live.comp.active[lid];
         if (s.live.program?.cueId === a.id) this.setProgram(null);
         if (s.live.preview?.cueId === a.id) s.live.preview = null;
         break;
@@ -227,6 +234,8 @@ export class Store {
         if (this._lastNav && now - this._lastNav < 120) return { ok: true };
         this._lastNav = now;
         if (s.live.blackout) { s.live.blackout = false; break; }
+        // Composition : diapo de la présentation active, sinon colonne suivante.
+        if (compStep(this, a.type === 'next' ? 1 : -1)) break;
         // PowerPoint natif : c'est PowerPoint qui avance (animations, builds, transitions).
         const nat = this.nativeTarget(this.cue(s.live.program?.cueId));
         if (nat) { this.native.step(nat, a.type === 'next' ? 1 : -1); return { ok: true }; }
@@ -248,6 +257,16 @@ export class Store {
         const cue = this.cue(a.cueId);
         s.live.native = { cueId: a.cueId, sourceId: a.sourceId ?? (s.live.native?.cueId === a.cueId ? s.live.native.sourceId : null),
           slide: a.slide || 1, click: a.click ?? 0, clicks: a.clicks ?? 0, total: a.total || 0, error: a.error || null };
+        const lc = s.live.comp;
+        if (cue && lc.deck === a.cueId) {
+          if (a.slide) { lc.slides[a.cueId] = a.slide; lc.slideAt[a.cueId] = Date.now() + 150; }
+          if (a.ended && s.comp.clickerColumns) {
+            // Fin du diaporama : colonne suivante.
+            const deck = lc.deck; lc.deck = null;
+            if (!compStep(this, 1)) lc.deck = deck;
+          }
+          break;
+        }
         const p = s.live.program;
         const progCue = this.cue(p?.cueId);
         if (!cue || this.nativeTarget(progCue)?.id !== a.cueId) break;
@@ -321,7 +340,7 @@ export class Store {
         const o = s.outputs.find((x) => x.id === a.id);
         if (!o) return { error: 'sortie introuvable' };
         const { id, ...patch } = a.patch || {};
-        if (patch.source && !SOURCES.includes(patch.source) && !patch.source.startsWith('cue:')) return { error: 'source invalide' };
+        if (patch.source && !SOURCES.includes(patch.source) && !/^(cue|layer):/.test(patch.source)) return { error: 'source invalide' };
         if (patch.zones) patch.zones = sanitizeZones(patch.zones);
         Object.assign(o, patch);
         break;
@@ -483,13 +502,14 @@ function sanitizeLayers(layers, cues, selfId) {
 }
 
 const ZONE_SOURCES = ['', 'program', 'clean', 'preview'];
+const zoneSourceOk = (v) => ZONE_SOURCES.includes(v) || /^(cue|layer):/.test(String(v || ''));
 function sanitizeZones(zones) {
   const num = (v, d, min, max) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
   const def = [[0, 0], [1, 0], [1, 1], [0, 1]];
   return (Array.isArray(zones) ? zones : []).slice(0, 16).map((z, i) => ({
     id: String(z.id || uid('zn_')),
     name: String(z.name || `Zone ${i + 1}`).slice(0, 40),
-    source: ZONE_SOURCES.includes(z.source) || String(z.source || '').startsWith('cue:') ? z.source || '' : '',
+    source: zoneSourceOk(z.source) ? z.source || '' : '',
     corners: def.map((d, k) => [num(z.corners?.[k]?.[0], d[0], -2, 3), num(z.corners?.[k]?.[1], d[1], -2, 3)]),
     crop: { x: num(z.crop?.x, 0, 0, 0.99), y: num(z.crop?.y, 0, 0, 0.99), w: num(z.crop?.w, 1, 0.01, 1), h: num(z.crop?.h, 1, 0.01, 1) },
     blend: { l: num(z.blend?.l, 0, 0, 0.5), r: num(z.blend?.r, 0, 0, 0.5), t: num(z.blend?.t, 0, 0, 0.5), b: num(z.blend?.b, 0, 0, 0.5) },
@@ -512,7 +532,7 @@ function clampSlide(store, cueId, slide) {
 function defaultName(cue, media) {
   if (media) return media.name.replace(/\.[^.]+$/, '');
   return { web: 'Page web / visio', camera: 'Caméra / capture', poll: 'Sondage', qa: 'Questions du public',
-    title: 'Titre', black: 'Noir', scene: 'Scène', ndi: 'Source NDI', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
+    title: 'Titre', black: 'Noir', color: 'Couleur', qr: 'QR code', scene: 'Scène', ndi: 'Source NDI', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
 }
 
 function sanitizeVote(poll, answer) {

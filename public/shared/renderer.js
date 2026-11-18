@@ -216,7 +216,7 @@ export class Stage {
     const s = this.state?.settings || {};
     // Fondu entre éléments du conducteur, cut entre diapositives (comme PowerPoint).
     const sameCue = old && old.desc.cue && layer.desc.cue && old.desc.cue.id === layer.desc.cue.id;
-    const ms = s.transition === 'cut' || sameCue ? 0 : s.transitionMs ?? 400;
+    const ms = sameCue ? 0 : this.opts.transitionMs ? this.opts.transitionMs() : s.transition === 'cut' ? 0 : s.transitionMs ?? 400;
     layer.el.style.transition = ms ? `opacity ${ms}ms ease` : 'none';
     layer.el.getBoundingClientRect();
     layer.el.style.opacity = 1;
@@ -268,6 +268,7 @@ class Layer {
     this.key = desc.key;
     this.el = document.createElement('div');
     this.el.className = 'layer layer-' + desc.type;
+    if (stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
     this.el.style.opacity = 0;
     stage.layers.append(this.el);
     this.timers = [];
@@ -334,12 +335,14 @@ class Layer {
         v.preload = 'auto';
         v.playsInline = true;
         v.muted = monitor || !this.stage.opts.audio;
-        v.loop = !!d.cue.loop;
-        v.volume = d.cue.volume ?? 1;
+        v.loop = this.loops(d.cue);
+        v.volume = this.volume(d.cue);
         if (d.type === 'audio') { el.innerHTML = `<div class="audio-badge">♪ ${esc(d.cue.name)}</div>`; v.style.display = 'none'; }
         el.append(v);
         v.addEventListener('ended', () => {
-          if (this.stage.opts.reportEnded && !v.loop) this.stage.opts.client?.send({ type: 'video.ended', cueId: d.cue.id, duration: v.duration });
+          if (!this.stage.opts.reportEnded || v.loop) return;
+          const layerId = this.stage.opts.compLayer;
+          this.stage.opts.client?.send(layerId ? { type: 'comp.ended', layerId, cueId: d.cue.id, duration: v.duration } : { type: 'video.ended', cueId: d.cue.id, duration: v.duration });
         });
         await new Promise((res, rej) => {
           if (v.readyState >= 3) return res();
@@ -373,6 +376,10 @@ class Layer {
         await v.play().catch(() => {});
         return;
       }
+      case 'color':
+        el.style.background = d.cue.color || '#000';
+        return;
+      case 'qr':
       case 'title':
       case 'poll':
       case 'qa':
@@ -471,7 +478,8 @@ class Layer {
     const st = this.stage.state, client = this.stage.opts.client;
     const live = st?.live?.program;
     const onAir = live && live.cueId === this.desc.cue.id && live.slide === this.desc.slide && !st.live.blackout;
-    const start = onAir ? st.live.slideAt : this.builtAt;
+    const sa = this.stage.opts.slideAtFor?.(this.desc.cue.id);
+    const start = sa != null ? sa : onAir ? st.live.slideAt : this.builtAt;
     const now = client ? client.now() : Date.now();
     for (const m of this.slideMedia) {
       const dur = m.duration || Infinity;
@@ -486,15 +494,21 @@ class Layer {
 
   update(desc, state) {
     this.desc = desc;
-    if (['title', 'poll', 'qa'].includes(desc.type)) this.renderCard(desc, state);
+    if (['title', 'poll', 'qa', 'qr'].includes(desc.type)) this.renderCard(desc, state);
+    if (desc.type === 'color') this.el.style.background = desc.cue.color || '#000';
+    if (this.stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
-      this.video.loop = !!desc.cue.loop;
-      this.video.volume = Math.max(0, Math.min(1, desc.cue.volume ?? 1));
+      this.video.loop = this.loops(desc.cue);
+      this.video.volume = this.volume(desc.cue);
       this.syncMedia();
       if (!this.syncTimer) this.syncTimer = setInterval(() => this.syncMedia(), 250);
     }
   }
+
+  // Dans la composition, les clips bouclent par défaut (comme en VJ) ; ailleurs, réglage "boucle".
+  loops(cue) { return this.stage.opts.compLayer ? (cue.loopMode || 'loop') === 'loop' : !!cue.loop; }
+  volume(cue) { return Math.max(0, Math.min(1, (cue.volume ?? 1) * (this.stage.opts.volumeFor?.() ?? 1))); }
 
   // Lecture calée sur l'horloge du serveur : toutes les sorties restent synchronisées.
   syncMedia() {
@@ -518,10 +532,12 @@ class Layer {
       if (v.paused) v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
       return;
     }
-    const pb = this.stage.state?.live?.playback;
+    const pf = this.stage.opts.playbackFor;
+    const pb = pf ? pf(this.desc.cue.id) : this.stage.state?.live?.playback;
     const client = this.stage.opts.client;
-    if (!pb || pb.cueId !== this.desc.cue.id || !client) { if (!v.paused) v.pause(); return; }
-    let target = pb.playing ? (client.now() - pb.startedAt) / 1000 : pb.offset;
+    if (!pb || (!pf && pb.cueId !== this.desc.cue.id) || !client) { if (!v.paused) v.pause(); return; }
+    const speed = Math.max(0.1, Math.min(4, this.desc.cue.speed || 1));
+    let target = pb.playing ? ((client.now() - pb.startedAt) / 1000) * speed : pb.offset;
     const dur = v.duration || Infinity;
     if (v.loop && isFinite(dur) && dur > 0) target = ((target % dur) + dur) % dur;
     if (target < 0) { if (!v.paused) v.pause(); if (v.currentTime > 0.05) v.currentTime = 0; return; }
@@ -529,7 +545,7 @@ class Layer {
     const drift = v.currentTime - target;
     if (pb.playing) {
       if (Math.abs(drift) > 0.5) v.currentTime = target;
-      else v.playbackRate = Math.abs(drift) > 0.04 ? (drift > 0 ? 0.97 : 1.03) : 1;
+      else v.playbackRate = speed * (Math.abs(drift) > 0.04 ? (drift > 0 ? 0.97 : 1.03) : 1);
       if (v.paused) {
         v.play().catch((e) => {
           if (e.name === 'NotAllowedError' && !v.muted) { v.muted = true; v.play().catch(() => {}); this.stage.opts.onAutoplayBlocked?.(() => { v.muted = false; }); }
@@ -546,8 +562,12 @@ class Layer {
     const cue = d.cue;
     const bg = cue.bgMediaId && state?.media.find((m) => m.id === cue.bgMediaId);
     const bgStyle = bg ? ` style="background-image:url('/media/${esc(bg.file)}')"` : '';
+    const tr = cue.transparent ? ' transparent' : '';
     if (d.type === 'title') {
-      html = `<div class="card title-card"${bgStyle}><h1>${esc(cue.title || cue.name)}</h1>${cue.subtitle ? `<p>${esc(cue.subtitle)}</p>` : ''}</div>`;
+      html = `<div class="card title-card${tr}"${bgStyle}${cue.textColor ? ` data-color="${esc(cue.textColor)}"` : ''}><h1>${esc(cue.title || cue.name)}</h1>${cue.subtitle ? `<p>${esc(cue.subtitle)}</p>` : ''}</div>`;
+    } else if (d.type === 'qr') {
+      // QR code : lien libre, ou page de vote du public si vide.
+      html = `<div class="card qr-card${tr}"${bgStyle}><div class="qr-box"><img data-qr-text="${esc(cue.text || '')}" alt=""></div>${cue.caption ? `<p class="qr-caption">${esc(cue.caption)}</p>` : ''}</div>`;
     } else if (d.type === 'poll') {
       const poll = state?.polls.find((p) => p.id === cue.pollId);
       html = poll ? pollCard(poll, state, this) : '<div class="placeholder">Sondage non défini</div>';
@@ -561,6 +581,10 @@ class Layer {
       this.el.dataset.html = html;
       this.el.innerHTML = html;
       this.fillJoin(state);
+      const qr = this.el.querySelector('[data-qr-text]');
+      if (qr) (qr.dataset.qrText ? Promise.resolve(qr.dataset.qrText) : joinUrl(state)).then((t) => { qr.src = '/api/qr.svg?text=' + encodeURIComponent(t); });
+      const col = this.el.querySelector('[data-color]');
+      if (col) col.style.color = col.dataset.color;
     }
   }
 
@@ -639,4 +663,49 @@ export function stepFrom(state, pos, dir) {
 export function mainLayerOf(scene, cues) {
   const layers = (scene.layers || []).filter((l) => l.cueId);
   return layers.find((l) => l.main) || layers.find((l) => cues.find((c) => c.id === l.cueId)?.type === 'slides') || null;
+}
+
+// ---------------------------------------------------------------- effets / transformations
+// Effets appliqués à un clip ou à un calque, traduits en filtres CSS (temps réel, GPU).
+export function effectsCss(effects = []) {
+  const f = [], t = [];
+  for (const e of effects) {
+    if (e.on === false) continue;
+    const v = +e.value;
+    switch (e.type) {
+      case 'brightness': f.push(`brightness(${v})`); break;
+      case 'contrast': f.push(`contrast(${v})`); break;
+      case 'saturate': f.push(`saturate(${v})`); break;
+      case 'hue': f.push(`hue-rotate(${v}deg)`); break;
+      case 'blur': f.push(`blur(calc(${v} * 100cqw / 1920))`); break;
+      case 'grayscale': f.push(`grayscale(${v})`); break;
+      case 'sepia': f.push(`sepia(${v})`); break;
+      case 'invert': f.push(`invert(${v})`); break;
+      case 'mirrorX': t.push('scaleX(-1)'); break;
+      case 'mirrorY': t.push('scaleY(-1)'); break;
+    }
+  }
+  return { filter: f.join(' '), transform: t.join(' ') };
+}
+
+export function transformCss(tr = {}, extra = '') {
+  const parts = [];
+  if (tr.x || tr.y) parts.push(`translate(${(tr.x || 0) * 100}%, ${(tr.y || 0) * 100}%)`);
+  if (tr.scale != null && tr.scale !== 1) parts.push(`scale(${tr.scale})`);
+  if (tr.rotate) parts.push(`rotate(${tr.rotate}deg)`);
+  if (extra) parts.push(extra);
+  return parts.join(' ');
+}
+
+export const MASK_CSS = {
+  none: '', ellipse: 'ellipse(50% 50% at 50% 50%)', circle: 'circle(min(50cqw, 50cqh) at 50% 50%)',
+  rounded: 'inset(0 round 4cqw)', diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
+};
+
+function applyClipStyle(el, cue) {
+  const fx = effectsCss(cue.effects);
+  el.style.transform = transformCss(cue.transform, fx.transform);
+  el.style.filter = fx.filter;
+  el.style.clipPath = MASK_CSS[cue.mask] || '';
+  if (cue.fit) el.dataset.fit = cue.fit; else delete el.dataset.fit;
 }

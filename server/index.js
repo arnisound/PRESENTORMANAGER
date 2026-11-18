@@ -11,7 +11,7 @@ import multer from 'multer';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
-import { processMedia, kindOf, findSoffice } from './media.js';
+import { processMedia, kindOf, officeConverters } from './media.js';
 import { startNdiDiscovery } from './ndi.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,13 +41,15 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
   app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
   app.get('/v', (req, res) => res.redirect('/vote/'));
 
-  app.get('/api/info', (req, res) => {
+  app.get('/api/info', async (req, res) => {
+    const converters = await officeConverters();
     const addr = server.address();
     res.json({
       port: addr.port,
       lan: lanAddresses().map((ip) => `http://${ip}:${addr.port}`),
       pinRequired: !!pin,
-      converter: !!findSoffice(),
+      converter: converters.length > 0,
+      converters,
     });
   });
 
@@ -80,6 +82,20 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
         store.state.media.push(media);
         created.push(media);
         processMedia(media, f.path, mediaDir, () => store.emit());
+      }
+      // Fichiers déposés sur une case de la grille : clips créés à partir de cette case
+      // (cases libres suivantes du même calque pour un dépôt multiple).
+      if (req.query.layer) {
+        const layer = store.state.comp.layers.find((l) => l.id === req.query.layer);
+        let col = Math.max(0, parseInt(req.query.col, 10) || 0);
+        created.forEach((m, i) => {
+          if (!layer) return;
+          if (i > 0) while (col < layer.clips.length && layer.clips[col]) col++; // fichiers suivants : cases libres
+          while (col >= layer.clips.length) store.dispatch({ type: 'comp.column.add' });
+          const type = m.kind === 'office' ? 'slides' : m.kind;
+          store.dispatch({ type: 'comp.cell.create', layerId: layer.id, col, cue: { type, mediaId: m.id } });
+          col++;
+        });
       }
       // Création automatique des éléments du conducteur si demandé.
       if (req.query.addCues === '1') {

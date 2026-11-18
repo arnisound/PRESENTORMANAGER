@@ -11,10 +11,19 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand"><img class="brand-logo" src="/brand/logo-192.png" alt=""><span class="brand-name">PresenThor</span><span class="brand-sep"></span><input id="show-name" class="show-name" spellcheck="false" aria-label="Nom de l'événement"></div>
-  <div class="conn" id="conn">●</div>
-  <div class="clients" id="clients"></div>
+  <div class="brand"><img class="brand-logo" src="/brand/logo-192.png" alt=""><span class="brand-name">PresenThor</span><span class="brand-sep"></span>
+    <input id="show-name" class="show-name" spellcheck="false" aria-label="Nom de l'événement"></div>
+  <span class="conn" id="conn">●</span>
+  <span class="clients" id="clients"></span>
   <div class="spacer"></div>
+  <div class="deck" id="deck" hidden>
+    <button class="btn sm" data-act="deck-prev" title="Diapo précédente (← / PageUp / télécommande)">◀</button>
+    <span id="deck-label"></span>
+    <button class="btn sm" data-act="deck-next" title="Diapo suivante (→ / PageDown / télécommande)">▶</button>
+  </div>
+  <label class="master" title="Opacité générale de la composition">Master <input type="range" id="master" min="0" max="1" step="0.01"></label>
+  <button class="btn" id="clear-all" title="Vider tous les calques">Tout vider</button>
+  <button class="btn danger" id="blackout" title="Écran noir (B)">NOIR</button>
   <div class="timer-box">
     <span id="timer-display" class="timer-display">00:00</span>
     <button id="timer-toggle" class="btn sm" title="Démarrer / pause">▶</button>
@@ -24,87 +33,51 @@
 </header>
 
 <main class="layout">
-  <!-- Bibliothèque -->
-  <aside class="panel lib">
-    <div class="panel-head"><h2>Médias</h2>
-      <label class="btn sm primary">Importer<input type="file" id="file-input" multiple hidden
-        accept=".pdf,.pptx,.ppt,.pps,.ppsx,.odp,.key,.mp4,.webm,.mov,.m4v,.mkv,.png,.jpg,.jpeg,.gif,.webp,.svg,.mp3,.wav,.ogg,.m4a,.aac"></label>
-    </div>
-    <div id="upload-progress" class="upload-progress" hidden><div></div></div>
-    <div id="media-list" class="media-list"></div>
-    <p class="hint">Glissez vos fichiers n'importe où : PowerPoint, Keynote, PDF, vidéos, images, sons.</p>
-    <div class="panel-head"><h2>Ajouter au conducteur</h2></div>
-    <div class="add-grid">
-      <button class="btn" data-add="title">🅃 Titre</button>
-      <button class="btn" data-add="web">🌐 Web / visio</button>
-      <button class="btn" data-add="camera">🎥 Caméra / capture</button>
-      <button class="btn" data-add="poll">📊 Sondage</button>
-      <button class="btn" data-add="qa">💬 Questions public</button>
-      <button class="btn" data-add="scene">🧩 Scène / calques</button>
-      <button class="btn" data-add="ndi">📡 Source NDI</button>
-      <button class="btn" data-add="black">⬛ Noir</button>
-    </div>
-  </aside>
-
-  <!-- Centre : moniteurs + conducteur -->
-  <section class="center">
-    <div class="monitors">
-      <div class="monitor pvw">
-        <div class="mon-tag"><span>PREVIEW</span><span id="pvw-name"></span></div>
-        <div id="pvw-stage" class="mon-stage"></div>
-      </div>
-      <div class="take-col">
-        <button id="take" class="take" title="Envoyer la preview au programme (Entrée)">TAKE</button>
-        <select id="transition" title="Transition"><option value="fade">Fondu</option><option value="cut">Cut</option></select>
-        <input id="transition-ms" type="number" min="0" max="5000" step="100" title="Durée du fondu (ms)">
-      </div>
-      <div class="monitor pgm">
-        <div class="mon-tag"><span>PROGRAMME</span><span id="pgm-name"></span></div>
-        <div id="pgm-stage" class="mon-stage"></div>
-      </div>
-    </div>
-
-    <div class="transport">
-      <button class="btn" id="prev" title="Précédent (← / PageUp / télécommande)">◀ Préc.</button>
-      <button class="btn primary" id="next" title="Suivant (→ / PageDown / télécommande)">Suiv. ▶</button>
-      <span class="slide-count" id="slide-count"></span>
-      <div class="media-ctl" id="media-ctl" hidden>
-        <button class="btn sm" id="v-restart" title="Recommencer">⏮</button>
-        <button class="btn sm" id="v-play">⏯</button>
-        <input type="range" id="v-seek" min="0" max="100" step="0.1" value="0">
-        <span id="v-time" class="v-time">0:00</span>
-      </div>
-      <div class="spacer"></div>
-      <button class="btn" id="logo" title="Afficher le logo / habillage">LOGO</button>
-      <button class="btn danger" id="blackout" title="Écran noir (B)">NOIR</button>
-      <button class="btn" id="clear" title="Vider le programme">Vider</button>
-    </div>
-
-    <div class="slides-strip" id="slides-strip"></div>
-
-    <div class="panel rundown">
-      <div class="panel-head"><h2>Conducteur</h2><span class="hint">Clic = preview · double-clic = direct · glisser pour réordonner · Entrée = TAKE</span></div>
-      <ol id="cue-list" class="cue-list"></ol>
-    </div>
+  <!-- Grille calques × colonnes -->
+  <section class="grid-area">
+    <div class="grid" id="grid"></div>
   </section>
 
-  <!-- Inspecteur / sorties / interaction -->
-  <aside class="panel side">
-    <nav class="tabs" id="tabs">
-      <button data-tab="cue" class="active">Élément</button>
-      <button data-tab="outputs">Sorties</button>
-      <button data-tab="live">Direct</button>
-      <button data-tab="interact">Public</button>
-      <button data-tab="settings">Réglages</button>
-    </nav>
-    <div class="tab-body" id="tab-cue"></div>
-    <div class="tab-body" id="tab-outputs" hidden></div>
-    <div class="tab-body" id="tab-live" hidden></div>
-    <div class="tab-body" id="tab-interact" hidden></div>
-    <div class="tab-body" id="tab-settings" hidden></div>
-  </aside>
+  <!-- Bas : moniteurs, propriétés, navigateur -->
+  <section class="bottom">
+    <div class="monitors">
+      <div class="mon">
+        <div class="mon-tag"><span>SORTIE</span><span id="out-info"></span></div>
+        <div id="out-mon" class="mon-stage pgm"></div>
+      </div>
+      <div class="mon">
+        <div class="mon-tag"><span>APERÇU</span><span id="pvw-info"></span></div>
+        <div id="pvw-mon" class="mon-stage pvw"></div>
+      </div>
+      <div class="transport" id="transport"></div>
+    </div>
+
+    <div class="panel props">
+      <nav class="tabs" id="prop-tabs">
+        <button data-ptab="comp">Composition</button>
+        <button data-ptab="layer">Calque</button>
+        <button data-ptab="clip" class="active">Clip</button>
+      </nav>
+      <div class="tab-body" id="props"></div>
+    </div>
+
+    <div class="panel browser">
+      <nav class="tabs" id="br-tabs">
+        <button data-btab="media" class="active">Médias</button>
+        <button data-btab="sources">Sources</button>
+        <button data-btab="fx">Effets</button>
+        <button data-btab="outputs">Sorties</button>
+        <button data-btab="public">Public</button>
+        <button data-btab="live">Direct</button>
+        <button data-btab="settings">⚙</button>
+      </nav>
+      <div class="tab-body" id="browser"></div>
+    </div>
+  </section>
 </main>
-<div id="drop" class="drop" hidden>Déposez pour importer et ajouter au conducteur</div>
+<div id="menu" class="menu" hidden></div>
+<div id="drop" class="drop" hidden>Déposez sur une case de la grille, ou ici pour la bibliothèque</div>
+<input type="file" id="file-input" multiple hidden accept=".pdf,.pptx,.ppt,.pps,.ppsx,.odp,.key,.mp4,.webm,.mov,.m4v,.mkv,.png,.jpg,.jpeg,.gif,.webp,.svg,.mp3,.wav,.ogg,.m4a,.aac">
 <div id="toast" class="toast" hidden></div>
 <script type="module" src="/control/control.js"></script>
 </body>
