@@ -1,10 +1,11 @@
 // Régie : conducteur, preview/programme, sorties, interaction public.
 import { Client, bindClicker, esc, fmtTime, timerValue, getPin } from '/shared/client.js';
 import { Stage, describe, stepFrom, pdfThumb, joinUrl } from '/shared/renderer.js';
+import { openSceneEditor } from '/control/scene-editor.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const desktop = window.presentor || null; // API exposée par l'app Mac/PC
-const ICONS = { slides: '📑', video: '🎬', image: '🖼', audio: '🎵', web: '🌐', camera: '🎥', poll: '📊', qa: '💬', title: '🅃', black: '⬛' };
+const ICONS = { slides: '📑', video: '🎬', image: '🖼', audio: '🎵', web: '🌐', camera: '🎥', ndi: '📡', scene: '🧩', poll: '📊', qa: '💬', title: '🅃', black: '⬛' };
 const SOURCE_LABELS = { program: 'Programme', clean: 'Programme sans habillage', preview: 'Preview', presenter: 'Retour présentateur', multiview: 'Multiview régie' };
 
 let S = null; // dernier état reçu
@@ -46,7 +47,7 @@ function onState(state) {
   $('#clients').textContent = `${nOut} sortie${nOut > 1 ? 's' : ''} · ${c.audience} participant${c.audience > 1 ? 's' : ''}`;
 
   pvwStage.update(S, describe(S, S.live.preview));
-  pgmStage.update(S, describe(S, S.live.program, { blackout: S.live.blackout, logo: S.live.logo }), S.live.overlay);
+  pgmStage.update(S, describe(S, S.live.program, { blackout: S.live.blackout, logo: S.live.logo }), S.live.overlay, S.live.blackout ? null : S.live.overlayScenes);
   $('#pvw-name').textContent = posName(S.live.preview);
   $('#pgm-name').textContent = posName(S.live.program);
   $('#blackout').classList.toggle('on', S.live.blackout);
@@ -102,6 +103,8 @@ function cueDetail(c) {
   if (c.type === 'slides') return m ? (m.status === 'ready' ? `${m.pages} diapos` : m.status === 'error' ? 'erreur' : 'conversion…') : 'média manquant';
   if (c.type === 'web') return c.url ? new URL(c.url, location.href).hostname : 'URL à définir';
   if (c.type === 'camera') return c.deviceLabel || 'source par défaut';
+  if (c.type === 'ndi') return c.source?.name || 'source à choisir';
+  if (c.type === 'scene') return `${(c.layers || []).length} calque${(c.layers || []).length > 1 ? 's' : ''}${S.live.overlayScenes?.includes(c.id) ? ' · habillage actif' : ''}`;
   if (c.type === 'poll') return S.polls.find((p) => p.id === c.pollId)?.question || 'sondage à choisir';
   if ((c.type === 'video' || c.type === 'image' || c.type === 'audio') && !m) return 'média manquant';
   return '';
@@ -211,6 +214,22 @@ function tabCue() {
     if (c.type === 'title') h += field('Sous-titre', `<input ${f('subtitle')} value="${esc(c.subtitle || '')}">`);
     h += field('Image de fond', `<select ${f('bgMediaId')}>${sel([['', 'Dégradé par défaut'], ...images.map((m) => [m.id, m.name])], c.bgMediaId)}</select>`);
   }
+  if (c.type === 'scene') {
+    const on = S.live.overlayScenes?.includes(c.id);
+    h += `<div class="box"><b>${(c.layers || []).length} calque(s)</b>
+      ${(c.layers || []).slice().reverse().map((l) => `<span class="hint">${ICONS[cueById(l.cueId)?.type] || ''} ${esc(l.name || cueById(l.cueId)?.name || '?')} — ${Math.round(l.w * 100)}×${Math.round(l.h * 100)} %${l.main ? ' · principal' : ''}</span>`).join('')}
+      <button class="btn primary" data-act="scene-edit">Éditer la scène</button></div>
+      <div class="box"><b>Habillage</b><span class="hint">Affiche cette scène par-dessus le programme, quel que soit l'élément à l'antenne (logo, cadre, bandeau, caméra en incrustation…). Utilisez un fond transparent.</span>
+      <button class="btn ${on ? 'on' : ''}" data-act="overlay-scene" data-id="${c.id}">${on ? 'Retirer l\'habillage' : 'Afficher en habillage'}</button></div>`;
+  }
+  if (c.type === 'ndi') {
+    const list = S.ndi?.sources || [];
+    const cur = c.source?.name;
+    h += field('Source NDI', `<select data-ndi-source>${sel([['', '—'], ...(cur && !list.some((x) => x.name === cur) ? [[cur, cur + ' (absente)']] : []), ...list.map((x) => [x.name, x.name])], cur)}</select>`);
+    h += `<span class="hint">${S.ndi?.available ? `${list.length} source(s) détectée(s) sur le réseau.` : 'Module NDI indisponible sur ce serveur.'} ${desktop ? '' : 'L\'image NDI s\'affiche dans les sorties de l\'app Mac / PC.'}</span>`;
+    h += check('Remplir l\'écran (recadrer)', `${f('fill')} data-type="bool"`, c.fill);
+    h += check('Son de la source NDI', `${f('withAudio')} data-type="bool-default-true"`, c.withAudio !== false);
+  }
   if (c.type === 'poll') {
     h += field('Sondage affiché', `<select ${f('pollId')}>${sel([['', '—'], ...S.polls.map((p) => [p.id, p.question])], c.pollId)}</select>`);
     h += `<p class="hint">Créez et pilotez les sondages dans l'onglet « Public ».</p>`;
@@ -247,7 +266,10 @@ function tabOutputs() {
 function tabLive() {
   const t = S.timer;
   const o = S.live.overlay;
-  return `<div class="box"><b>Message au présentateur</b>
+  const scenes = S.cues.filter((c) => c.type === 'scene');
+  return `<div class="box"><b>Habillages (scènes par-dessus le programme)</b>
+      ${scenes.length ? `<div class="row wrap">${scenes.map((c) => `<button class="btn sm ${S.live.overlayScenes?.includes(c.id) ? 'on' : ''}" data-act="overlay-scene" data-id="${c.id}">${esc(c.name)}</button>`).join('')}</div>` : '<span class="hint">Créez une scène (bouton « Scène ») avec un fond transparent : logo, cadre, caméra en incrustation…</span>'}</div>
+    <div class="box"><b>Message au présentateur</b>
       <textarea id="msg-text" placeholder="Ex. : Il reste 5 minutes, accélérez">${esc(S.message?.text || '')}</textarea>
       <div class="row"><button class="btn primary" data-act="msg-send">Envoyer</button><button class="btn" data-act="msg-clear">Effacer</button>
       ${['5 min', 'Plus fort', 'Questions', 'Conclure'].map((q) => `<button class="btn sm" data-act="msg-quick" data-text="${q}">${q}</button>`).join('')}</div></div>
@@ -323,6 +345,8 @@ document.addEventListener('click', async (e) => {
     'media-remove': () => confirm('Supprimer ce média ?') && send({ type: 'media.remove', id }),
     'cue-preview': () => send({ type: 'preview.set', cueId: selectedId, slide: 1 }),
     'cue-program': () => send({ type: 'program.set', cueId: selectedId, slide: 1 }),
+    'scene-edit': () => openSceneEditor({ getState: () => S, send, cueId: selectedId, client }),
+    'overlay-scene': () => send({ type: 'overlay.scene', cueId: id }),
     'cue-dup': () => send({ type: 'cue.duplicate', id: selectedId }),
     'cue-remove': () => confirm('Supprimer cet élément du conducteur ?') && send({ type: 'cue.remove', id: selectedId }),
     cams: () => detectCameras(true),
@@ -390,6 +414,9 @@ document.addEventListener('change', (e) => {
     const patch = { [k]: v === '' && k.endsWith('Id') ? null : v };
     if (k === 'deviceId') patch.deviceLabel = cameras.find((d) => d.deviceId === v)?.label || '';
     send({ type: 'cue.update', id: selectedId, patch });
+  } else if (el.dataset.ndiSource !== undefined) {
+    const src = (S.ndi?.sources || []).find((x) => x.name === el.value) || (el.value ? { name: el.value } : null);
+    send({ type: 'cue.update', id: selectedId, patch: { source: src, name: src ? src.name : cueById(selectedId).name } });
   } else if (el.dataset.outField) {
     const id = el.closest('[data-out]').dataset.out;
     send({ type: 'output.update', id, patch: { [el.dataset.outField]: readValue(el) } });
@@ -491,8 +518,18 @@ document.querySelector('.add-grid').addEventListener('click', async (e) => {
   const cue = { type };
   if (type === 'poll' && S.polls.length) cue.pollId = (S.polls.find((p) => p.id === S.activePollId) || S.polls[S.polls.length - 1]).id;
   const idx = S.cues.findIndex((c) => c.id === selectedId);
+  if (type === 'scene') {
+    // Nouvelle scène : on part de l'élément sélectionné comme premier calque.
+    const base = cueById(selectedId);
+    cue.name = 'Scène ' + (S.cues.filter((c) => c.type === 'scene').length + 1);
+    cue.layers = base && base.type !== 'scene' ? [{ cueId: base.id, x: 0, y: 0, w: 1, h: 1, main: base.type === 'slides' }] : [];
+  }
   const r = await send({ type: 'cue.add', cue, index: idx >= 0 ? idx + 1 : undefined });
-  if (r?.id) { selectCue(r.id); send({ type: 'preview.set', cueId: r.id }); }
+  if (r?.id) {
+    selectCue(r.id);
+    send({ type: 'preview.set', cueId: r.id });
+    if (type === 'scene') openSceneEditor({ getState: () => S, send, cueId: r.id, client });
+  }
 });
 
 // Raccourcis régie

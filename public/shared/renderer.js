@@ -81,7 +81,7 @@ export function joinUrl(state) {
 }
 
 // ---------------------------------------------------------------- description d'un contenu
-export function describe(state, pos, { blackout = false, logo = false } = {}) {
+export function describe(state, pos, { blackout = false, logo = false, depth = 0 } = {}) {
   if (!state) return { key: 'none', type: 'black' };
   if (blackout) return { key: 'black', type: 'black' };
   const logoMedia = state.media.find((m) => m.id === state.settings.logoMediaId);
@@ -107,6 +107,11 @@ export function describe(state, pos, { blackout = false, logo = false } = {}) {
       return { ...base, key: `${cue.id}:${cue.url}` };
     case 'camera':
       return { ...base, key: `${cue.id}:${cue.deviceId}:${cue.deviceLabel}:${cue.withAudio}` };
+    case 'ndi':
+      return { ...base, key: `${cue.id}:${cue.source?.name}:${cue.source?.urlAddress}` };
+    case 'scene':
+      if (depth > 0) return { ...base, key: 'nested:' + cue.id, type: 'placeholder', label: 'Scène imbriquée non autorisée' };
+      return { ...base, key: 'scene:' + cue.id, slide: pos.slide };
     default:
       return { ...base, key: cue.id + ':' + (cue.bgMediaId || '') };
   }
@@ -116,6 +121,11 @@ export function notesFor(state, pos) {
   if (!state || !pos) return '';
   const cue = state.cues.find((c) => c.id === pos.cueId);
   if (!cue) return '';
+  if (cue.type === 'scene') {
+    const main = mainLayerOf(cue, state.cues);
+    const inner = main ? notesFor(state, { cueId: main.cueId, slide: pos.slide }) : '';
+    return [cue.notes, inner].filter(Boolean).join('\n\n');
+  }
   const media = cue.mediaId ? state.media.find((m) => m.id === cue.mediaId) : null;
   const slideNotes = cue.type === 'slides' ? media?.notes?.[pos.slide - 1] || '' : '';
   return [cue.notes, slideNotes].filter(Boolean).join('\n\n');
@@ -135,6 +145,7 @@ export class Stage {
     this.root = root;
     this.opts = opts;
     root.classList.add('stage');
+    if (opts.transparent) root.classList.add('transparent');
     this.layers = document.createElement('div');
     this.layers.className = 'stage-layers';
     this.overlayEl = document.createElement('div');
@@ -156,10 +167,14 @@ export class Stage {
     return { w: Math.max(64, Math.round(r.width * dpr)), h: Math.max(36, Math.round(r.height * dpr)) };
   }
 
-  update(state, desc, overlay = null) {
+  // Promesse résolue quand le contenu demandé est à l'écran (utilisée par les scènes).
+  whenReady() { return this.pending ? this.pending.ready : Promise.resolve(); }
+
+  update(state, desc, overlay = null, overlayScenes = null) {
     this.state = state;
     this.lastDesc = desc;
     this.renderOverlay(overlay);
+    this.renderOverlayScenes(state, overlayScenes || []);
     if (this.current && this.current.key === desc.key) return this.current.update(desc, state);
     if (this.pending && this.pending.key === desc.key) return this.pending.update(desc, state);
     if (this.pending) this.pending.destroy();
@@ -189,6 +204,32 @@ export class Stage {
   // Préchauffe un contenu à venir (diapo suivante) pour un affichage instantané.
   preload(desc) {
     if (desc?.type === 'slides') { const { w, h } = this.size(); pageCanvas(desc.src, desc.slide, w, h).catch(() => {}); }
+  }
+
+  // Scènes d'habillage (logo, bandeau, cadre…) superposées au programme.
+  renderOverlayScenes(state, ids) {
+    this.ovScenes ||= new Map();
+    ids = ids.filter((id) => id !== this.lastDesc?.cue?.id); // jamais la scène déjà à l'antenne
+    for (const [id, o] of this.ovScenes) if (!ids.includes(id)) { o.stage.destroy(); o.el.remove(); this.ovScenes.delete(id); }
+    ids.forEach((id, i) => {
+      let o = this.ovScenes.get(id);
+      if (!o) {
+        const el = document.createElement('div');
+        el.className = 'stage-ovscene';
+        this.overlayEl.before(el);
+        o = { el, stage: new Stage(el, { ...this.opts, transparent: true, reportEnded: false }) };
+        this.ovScenes.set(id, o);
+      }
+      o.el.style.zIndex = 2 + i;
+      o.stage.update(state, describe(state, { cueId: id, slide: 1 }));
+    });
+  }
+
+  destroy() {
+    this.pending?.destroy();
+    this.current?.destroy();
+    for (const o of this.ovScenes?.values() || []) o.stage.destroy();
+    this.destroyed = true;
   }
 
   renderOverlay(o) {
@@ -293,7 +334,69 @@ class Layer {
       case 'qa':
         this.renderCard(d, this.stage.state);
         return;
+      case 'scene':
+        this.builtAt = this.stage.opts.client ? this.stage.opts.client.now() : Date.now();
+        this.children = new Map();
+        this.syncScene(d, this.stage.state);
+        // On attend que tous les calques soient prêts (avec un plafond) avant d'afficher la scène.
+        await Promise.race([Promise.all([...this.children.values()].map((c) => c.stage.whenReady())), new Promise((r) => setTimeout(r, 3500))]);
+        return;
+      case 'ndi': {
+        const api = window.presentor?.ndi;
+        if (!api) { el.innerHTML = `<div class="placeholder"><b>NDI : ${esc(d.cue.source?.name || 'aucune source')}</b><small>Réception NDI disponible dans l'app Mac / PC</small></div>`; return; }
+        if (!d.cue.source?.name) { el.innerHTML = '<div class="placeholder">Choisissez une source NDI</div>'; return; }
+        const c = document.createElement('canvas');
+        c.className = 'fit' + (d.cue.fill ? ' cover' : '');
+        c.id = 'ndi-' + Math.random().toString(36).slice(2);
+        el.append(c);
+        // Le module natif tourne dans le preload : il dessine directement dans ce canvas.
+        this.ndiHandle = await api.attach(c.id, d.cue.source, { low: !!monitor, audio: !monitor && !!this.stage.opts.audio && d.cue.withAudio !== false });
+        await api.firstFrame(this.ndiHandle, 3000);
+        return;
+      }
     }
+  }
+
+  // Positionne / met à jour les calques d'une scène.
+  syncScene(d, state) {
+    const cue = state?.cues.find((c) => c.id === d.cue.id) || d.cue;
+    const el = this.el;
+    const transparent = cue.background === 'transparent' || this.stage.opts.transparent;
+    el.style.background = transparent ? 'transparent' : cue.background || '#000';
+    const bg = cue.bgMediaId && state?.media.find((m) => m.id === cue.bgMediaId);
+    el.style.backgroundImage = bg ? `url('/media/${bg.file}')` : '';
+    el.style.backgroundSize = 'cover';
+    const main = mainLayerOf(cue, state?.cues || []);
+    const layers = (cue.layers || []).filter((l) => l.visible !== false && l.cueId);
+    for (const [id, ch] of this.children) if (!layers.some((l) => l.id === id)) { ch.stage.destroy(); ch.el.remove(); this.children.delete(id); }
+    layers.forEach((l, i) => {
+      let ch = this.children.get(l.id);
+      if (!ch) {
+        const box = document.createElement('div');
+        box.className = 'scene-layer';
+        const inner = document.createElement('div');
+        inner.className = 'scene-inner';
+        box.append(inner);
+        el.append(box);
+        const startAt = () => (this.stage.state?.live?.program?.cueId === cue.id ? this.stage.state.live.cueAt : this.builtAt);
+        ch = { el: box, inner, stage: new Stage(inner, { ...this.stage.opts, transparent: true, reportEnded: false, startAt, depth: 1 }) };
+        this.children.set(l.id, ch);
+      }
+      const c = l.crop || {};
+      const cw = 1 - (c.l || 0) - (c.r || 0), chh = 1 - (c.t || 0) - (c.b || 0);
+      Object.assign(ch.el.style, {
+        left: l.x * 100 + '%', top: l.y * 100 + '%', width: l.w * 100 + '%', height: l.h * 100 + '%',
+        opacity: l.opacity ?? 1, zIndex: i + 1, borderRadius: (l.radius || 0) * 100 + '%',
+      });
+      // Recadrage : le contenu est agrandi puis décalé, la boîte du calque masque le reste.
+      Object.assign(ch.inner.style, {
+        width: 100 / cw + '%', height: 100 / chh + '%',
+        left: (-(c.l || 0) / cw) * 100 + '%', top: (-(c.t || 0) / chh) * 100 + '%',
+      });
+      ch.inner.dataset.fit = l.fit || 'contain';
+      const slide = main && main.id === l.id ? d.slide || 1 : l.slide || 1;
+      ch.stage.update(state, describe(state, { cueId: l.cueId, slide }, { depth: 1 }));
+    });
   }
 
   activate() { this.active = true; this.syncMedia(); }
@@ -301,6 +404,7 @@ class Layer {
   update(desc, state) {
     this.desc = desc;
     if (['title', 'poll', 'qa'].includes(desc.type)) this.renderCard(desc, state);
+    if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
       this.video.loop = !!desc.cue.loop;
       this.video.volume = Math.max(0, Math.min(1, desc.cue.volume ?? 1));
@@ -313,6 +417,18 @@ class Layer {
   syncMedia() {
     const v = this.video;
     if (!v || !this.active) return;
+    const startAt = this.stage.opts.startAt;
+    if (startAt && this.stage.opts.client) {
+      // Vidéo dans une scène : démarre avec la scène, synchronisée entre toutes les sorties.
+      const dur = v.duration || Infinity;
+      let t = (this.stage.opts.client.now() - startAt()) / 1000;
+      if (t < 0) { if (!v.paused) v.pause(); return; }
+      if (v.loop && isFinite(dur)) t %= dur;
+      else if (t >= dur) { if (!v.paused) v.pause(); return; }
+      if (Math.abs(v.currentTime - t) > 0.5) v.currentTime = t;
+      if (v.paused) v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+      return;
+    }
     if (this.stage.opts.free) {
       // Écran périphérique sur un élément fixe : boucle autonome.
       v.loop = true;
@@ -376,6 +492,8 @@ class Layer {
 
   destroy() {
     clearInterval(this.syncTimer);
+    for (const ch of this.children?.values() || []) ch.stage.destroy();
+    if (this.ndiHandle) window.presentor?.ndi?.detach(this.ndiHandle);
     if (this.video) { this.video.pause(); this.video.removeAttribute('src'); this.video.srcObject = null; this.video.load(); }
     this.el.remove();
   }
@@ -412,6 +530,10 @@ function bar(label, n, max, total, hidden = false) {
 
 // ---------------------------------------------------------------- navigation (miroir du serveur)
 export function slideCount(state, cue) {
+  if (cue?.type === 'scene') {
+    const main = mainLayerOf(cue, state.cues);
+    return main ? slideCount(state, state.cues.find((c) => c.id === main.cueId)) : 1;
+  }
   if (cue?.type !== 'slides') return 1;
   return Math.max(1, state.media.find((m) => m.id === cue.mediaId)?.pages || 1);
 }
@@ -427,4 +549,9 @@ export function stepFrom(state, pos, dir) {
   }
   if (cue && pos.slide > 1) return { cueId: cue.id, slide: pos.slide - 1 };
   return cues[idx - 1] ? { cueId: cues[idx - 1].id, slide: slideCount(state, cues[idx - 1]) } : null;
+}
+
+export function mainLayerOf(scene, cues) {
+  const layers = (scene.layers || []).filter((l) => l.cueId);
+  return layers.find((l) => l.main) || layers.find((l) => cues.find((c) => c.id === l.cueId)?.type === 'slides') || null;
 }

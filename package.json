@@ -70,5 +70,8 @@
         "AppImage"
       ]
     }
+  },
+  "optionalDependencies": {
+    "@stagetimerio/grandiose": "^0.2.1"
   }
 }

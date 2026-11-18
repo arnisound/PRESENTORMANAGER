@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 
 export const uid = (p = '') => p + crypto.randomBytes(5).toString('hex');
 
-const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'poll', 'qa', 'title', 'black'];
+const CUE_TYPES = ['slides', 'video', 'image', 'audio', 'web', 'camera', 'ndi', 'scene', 'poll', 'qa', 'title', 'black'];
 const SOURCES = ['program', 'preview', 'presenter', 'multiview', 'clean'];
 
 function defaultState() {
@@ -35,6 +35,9 @@ function defaultState() {
       logo: false,
       playback: null, // { cueId, playing, startedAt, offset }
       overlay: null, // { text, sub } bandeau / lower-third
+      overlayScenes: [], // scènes d'habillage affichées par-dessus le programme
+      cueAt: 0, // horloge serveur : passage à l'antenne de l'élément (synchro vidéos des scènes)
+      slideAt: 0, // horloge serveur : dernier changement de diapo (vidéos intégrées aux diapos)
     },
     timer: { mode: 'down', duration: 20 * 60 * 1000, running: false, startedAt: 0, elapsed: 0 },
     message: null, // { text, at } message au présentateur
@@ -89,6 +92,12 @@ export class Store {
   slideCount(cue) {
     if (!cue) return 1;
     if (cue.type === 'slides') return Math.max(1, this.mediaOf(cue)?.pages || 1);
+    if (cue.type === 'scene') {
+      // Dans une scène, suivant/précédent pilote le calque principal (une présentation).
+      const main = mainLayer(cue, this.state.cues);
+      const target = main && this.cue(main.cueId);
+      return target && target.type === 'slides' ? this.slideCount(target) : 1;
+    }
     return 1;
   }
 
@@ -115,7 +124,9 @@ export class Store {
     live.program = pos;
     live.blackout = false;
     live.logo = false;
+    live.slideAt = Date.now() + 150;
     if (pos && pos.cueId !== prevCue) {
+      live.cueAt = live.slideAt;
       const cue = this.cue(pos.cueId);
       if (cue && (cue.type === 'video' || cue.type === 'audio')) {
         const auto = cue.autoplay !== false;
@@ -143,6 +154,7 @@ export class Store {
       case 'cue.add': {
         if (!CUE_TYPES.includes(a.cue?.type)) return { error: 'type inconnu' };
         const cue = { id: uid('cue_'), name: '', notes: '', ...a.cue };
+        if (cue.type === 'scene') { cue.layers = sanitizeLayers(cue.layers, s.cues, cue.id); cue.background ||= '#000000'; }
         if (!cue.name) cue.name = defaultName(cue, this.mediaOf(cue));
         const at = a.index ?? s.cues.length;
         s.cues.splice(at, 0, cue);
@@ -154,11 +166,14 @@ export class Store {
         const cue = this.cue(a.id);
         if (!cue) return { error: 'cue introuvable' };
         const { id, type, ...patch } = a.patch || {};
+        if (patch.layers) patch.layers = sanitizeLayers(patch.layers, s.cues, cue.id);
         Object.assign(cue, patch);
         break;
       }
       case 'cue.remove': {
         s.cues = s.cues.filter((c) => c.id !== a.id);
+        for (const c of s.cues) if (c.layers) c.layers = c.layers.filter((l) => l.cueId !== a.id);
+        s.live.overlayScenes = s.live.overlayScenes.filter((id) => id !== a.id);
         if (s.live.program?.cueId === a.id) this.setProgram(null);
         if (s.live.preview?.cueId === a.id) s.live.preview = null;
         break;
@@ -206,6 +221,7 @@ export class Store {
       case 'slide.goto': {
         if (!s.live.program) return { error: 'rien au programme' };
         s.live.program = { ...s.live.program, slide: clampSlide(this, s.live.program.cueId, a.slide) };
+        s.live.slideAt = Date.now() + 150;
         break;
       }
       case 'blackout.toggle':
@@ -214,6 +230,14 @@ export class Store {
       case 'logo.toggle':
         s.live.logo = a.value ?? !s.live.logo;
         break;
+      case 'overlay.scene': {
+        const cue = this.cue(a.cueId);
+        if (!cue || cue.type !== 'scene') return { error: 'scène introuvable' };
+        const on = a.value ?? !s.live.overlayScenes.includes(cue.id);
+        s.live.overlayScenes = s.live.overlayScenes.filter((id) => id !== cue.id);
+        if (on) s.live.overlayScenes.push(cue.id);
+        break;
+      }
       case 'overlay.set':
         s.live.overlay = a.overlay && a.overlay.text ? { text: a.overlay.text, sub: a.overlay.sub || '' } : null;
         break;
@@ -396,6 +420,32 @@ export class Store {
   }
 }
 
+// Une scène ne peut pas contenir de scène (évite les boucles infinies de rendu).
+function sanitizeLayers(layers, cues, selfId) {
+  const num = (v, d, min = -1, max = 2) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
+  return (Array.isArray(layers) ? layers : []).slice(0, 32).filter((l) => {
+    const c = cues.find((x) => x.id === l.cueId);
+    return !l.cueId || (c && c.type !== 'scene' && c.id !== selfId);
+  }).map((l) => ({
+    id: String(l.id || uid('ly_')),
+    name: String(l.name || '').slice(0, 60),
+    cueId: l.cueId || null,
+    x: num(l.x, 0), y: num(l.y, 0), w: num(l.w, 1, 0.01, 3), h: num(l.h, 1, 0.01, 3),
+    opacity: num(l.opacity, 1, 0, 1),
+    fit: ['contain', 'cover', 'fill'].includes(l.fit) ? l.fit : 'contain',
+    crop: { l: num(l.crop?.l, 0, 0, 0.9), t: num(l.crop?.t, 0, 0, 0.9), r: num(l.crop?.r, 0, 0, 0.9), b: num(l.crop?.b, 0, 0, 0.9) },
+    radius: num(l.radius, 0, 0, 0.5),
+    visible: l.visible !== false,
+    main: !!l.main,
+    slide: Math.max(1, Math.round(+l.slide || 1)),
+  }));
+}
+
+export function mainLayer(scene, cues) {
+  const layers = scene.layers || [];
+  return layers.find((l) => l.main) || layers.find((l) => cues.find((c) => c.id === l.cueId)?.type === 'slides') || null;
+}
+
 function clampSlide(store, cueId, slide) {
   const n = store.slideCount(store.cue(cueId));
   return Math.max(1, Math.min(n, slide || 1));
@@ -404,7 +454,7 @@ function clampSlide(store, cueId, slide) {
 function defaultName(cue, media) {
   if (media) return media.name.replace(/\.[^.]+$/, '');
   return { web: 'Page web / visio', camera: 'Caméra / capture', poll: 'Sondage', qa: 'Questions du public',
-    title: 'Titre', black: 'Noir', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
+    title: 'Titre', black: 'Noir', scene: 'Scène', ndi: 'Source NDI', slides: 'Présentation', video: 'Vidéo', image: 'Image', audio: 'Audio' }[cue.type];
 }
 
 function sanitizeVote(poll, answer) {

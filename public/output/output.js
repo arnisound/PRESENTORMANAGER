@@ -54,7 +54,7 @@ function createView(source, out) {
     render: (s) => {
       const pos = source === 'preview' ? s.live.preview : s.live.program;
       const flags = source === 'preview' ? {} : { blackout: s.live.blackout, logo: s.live.logo };
-      stage.update(s, describe(s, pos, flags), source === 'program' ? s.live.overlay : null);
+      stage.update(s, describe(s, pos, flags), source === 'program' ? s.live.overlay : null, source === 'program' && !s.live.blackout ? s.live.overlayScenes : null);
       if (source !== 'preview') stage.preload(describe(s, stepFrom(s, s.live.program, 1)));
     },
   };
@@ -123,7 +123,7 @@ function multiView(opts) {
       state = s;
       $('[data-name]').textContent = s.show.name;
       pvw.update(s, describe(s, s.live.preview));
-      pgm.update(s, describe(s, s.live.program, { blackout: s.live.blackout, logo: s.live.logo }), s.live.overlay);
+      pgm.update(s, describe(s, s.live.program, { blackout: s.live.blackout, logo: s.live.logo }), s.live.overlay, s.live.blackout ? null : s.live.overlayScenes);
       const nm = (p) => { const c = s.cues.find((x) => x.id === p?.cueId); return c ? c.name + (c.type === 'slides' ? ` (${p.slide})` : '') : '—'; };
       $('[data-pvw]').textContent = nm(s.live.preview);
       $('[data-pgm]').textContent = (s.live.blackout ? 'NOIR · ' : '') + nm(s.live.program);

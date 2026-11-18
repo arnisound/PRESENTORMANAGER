@@ -94,3 +94,26 @@ test('questions du public : modération et affichage unique', () => {
   assert.equal(q1.status, 'done');
   assert.equal(q2.status, 'shown');
 });
+
+test('scène : suivant pilote le calque principal puis passe à l\'élément suivant', () => {
+  const { s, a, b, c } = fresh();
+  const sc = s.dispatch({ type: 'cue.add', cue: { type: 'scene', layers: [{ cueId: a, main: true }, { cueId: b, x: 0.7, y: 0.7, w: 0.3, h: 0.3 }] }, index: 0 }).id;
+  s.dispatch({ type: 'program.set', cueId: sc });
+  nav(s, 'next'); nav(s, 'next');
+  assert.deepEqual(s.state.live.program, { cueId: sc, slide: 3 });
+  nav(s, 'next');
+  assert.equal(s.state.live.program.cueId, a, 'après la dernière diapo on passe à l\'élément suivant');
+  assert.ok(c);
+});
+
+test('scène : pas de scène imbriquée, calques nettoyés à la suppression', () => {
+  const { s, a } = fresh();
+  const sc1 = s.dispatch({ type: 'cue.add', cue: { type: 'scene', layers: [{ cueId: a }] } }).id;
+  const sc2 = s.dispatch({ type: 'cue.add', cue: { type: 'scene', layers: [{ cueId: sc1 }, { cueId: a, x: 5, w: -1 }] } }).id;
+  const layers = s.cue(sc2).layers;
+  assert.equal(layers.length, 1);
+  assert.equal(layers[0].x, 2); // borné
+  assert.equal(layers[0].w, 0.01);
+  s.dispatch({ type: 'cue.remove', id: a });
+  assert.equal(s.cue(sc1).layers.length, 0);
+});
