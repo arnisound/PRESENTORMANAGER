@@ -25,8 +25,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -34,10 +34,12 @@ jobs:
         run: npm ci
       - name: Construction de l'installeur
         # Pas de certificat Apple / Microsoft : signature ad hoc sur Mac, aucune sur Windows.
+        # bash aussi sous Windows : PowerShell découpe l'option -c.mac.identity.
+        shell: bash
         run: npx electron-builder ${{ matrix.target }} --publish never -c.mac.identity=-
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: |
