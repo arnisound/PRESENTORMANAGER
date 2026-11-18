@@ -53,7 +53,7 @@ export function parseProbe(text) {
   return info;
 }
 
-async function probeFull(file) {
+export async function probeFull(file) {
   // Variante fiable : on demande une sortie vide pour récupérer la description complète.
   try { return parseProbe(await run(['-i', file, '-t', '0', '-f', 'null', '-'])); } catch (e) { return parseProbe(e.message); }
 }

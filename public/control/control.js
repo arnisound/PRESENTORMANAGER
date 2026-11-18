@@ -80,6 +80,7 @@ document.addEventListener('pointerup', endDrag, true);
 document.addEventListener('pointercancel', endDrag, true);
 const isEditing = (el) => {
   if (dragRange && el.contains(dragRange)) return true;
+  if (tlDrag && el.contains(tlDrag.el)) return true;
   const a = document.activeElement;
   return a && el.contains(a) && (a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['range', 'checkbox', 'color'].includes(a.type)));
 };
@@ -342,6 +343,30 @@ function clipProps() {
       ${media.notes?.some(Boolean) ? '<span class="hint">Notes du présentateur importées : visibles sur le retour présentateur et la télécommande.</span>' : ''}</div>`;
   }
   if (c.type === 'video' || c.type === 'audio') {
+    const dur = clipDuration(c);
+    const inP = +c.inPoint || 0, outP = c.outPoint > inP ? +c.outPoint : dur;
+    const pct = (t) => (dur ? Math.max(0, Math.min(100, (t / dur) * 100)) : 0);
+    h += `<div class="box timeline-box"><div class="box-head"><b>Timeline</b><span class="hint" data-tl-now="${c.id}"></span></div>
+      ${dur ? `<div class="tl" data-tl="${c.id}" data-dur="${dur}">
+        <div class="tl-track">
+          <div class="tl-out" style="left:0;width:${pct(inP)}%"></div><div class="tl-out" style="left:${pct(outP)}%;right:0"></div>
+          <div class="tl-range" style="left:${pct(inP)}%;width:${pct(outP) - pct(inP)}%">
+            ${c.fadeIn ? `<i class="tl-fin" style="width:${(c.fadeIn / Math.max(0.01, outP - inP)) * 100}%"></i>` : ''}
+            ${c.fadeOut ? `<i class="tl-fout" style="width:${(c.fadeOut / Math.max(0.01, outP - inP)) * 100}%"></i>` : ''}</div>
+          <span class="tl-h" data-tl-h="in" style="left:${pct(inP)}%" title="Point de départ (glisser)"></span>
+          <span class="tl-h out" data-tl-h="out" style="left:${pct(outP)}%" title="Point de fin (glisser)"></span>
+          <span class="tl-head" data-tl-head hidden></span></div>
+        <div class="tl-times"><span>0:00</span><span>${fmtTime(dur * 1000)}</span></div></div>`
+        : '<span class="hint">Durée en cours d\'analyse…</span>'}
+      <div class="grid4">
+        ${field('Départ (s)', `<input type="number" min="0" step="0.1" ${f('inPoint')} data-type="number" value="${fmt2(inP)}">`)}
+        ${field('Fin (s)', `<input type="number" min="0" step="0.1" ${f('outPoint')} data-type="number" value="${c.outPoint ? fmt2(c.outPoint) : ''}" placeholder="${dur ? fmt2(dur) : 'fin'}">`)}
+        ${field('Fondu entrée (s)', `<input type="number" min="0" step="0.1" ${f('fadeIn')} data-type="number" value="${fmt2(c.fadeIn || 0)}">`)}
+        ${field('Fondu sortie (s)', `<input type="number" min="0" step="0.1" ${f('fadeOut')} data-type="number" value="${fmt2(c.fadeOut || 0)}">`)}</div>
+      <div class="row wrap"><button class="btn sm" data-act="tl-mark" data-k="inPoint" title="Le point de départ prend la position actuelle">⇤ Départ ici</button>
+        <button class="btn sm" data-act="tl-mark" data-k="outPoint" title="Le point de fin prend la position actuelle">Fin ici ⇥</button>
+        <button class="btn sm" data-act="tl-reset">Tout le média</button>
+        <span class="hint">Cliquez dans la barre pour vous déplacer (clip à l'écran).</span></div></div>`;
     h += `<div class="box"><b>Lecture</b>
       ${field('Fin du clip', `<select ${f('loopMode')}>${sel_(LOOP_MODES, c.loopMode || 'loop')}</select>`)}
       ${check('Démarrer automatiquement au déclenchement', `${f('autoplay')} data-type="bool"`, c.autoplay !== false)}
@@ -413,6 +438,56 @@ function clipProps() {
     <button class="btn sm" data-act="cell-unset">Retirer de la case</button><button class="btn sm danger" data-act="cue-delete">Supprimer</button></div>`;
   return h;
 }
+
+// ------------------------------------------------------------------ timeline (vidéo / son)
+function clipDuration(c) {
+  const m = mediaById(c.mediaId);
+  if (m?.duration) return m.duration;
+  const v = findClipVideo(c.id) || (selCue()?.id === c.id ? pvwMon?.current?.video : null);
+  return v?.duration && isFinite(v.duration) ? v.duration : 0;
+}
+// Vidéo du clip dans le moniteur de sortie (position réelle à l'écran).
+function findClipVideo(cueId) {
+  for (const [layerId, L] of outMon?.layers || []) if (S.live.comp.active?.[layerId] === cueId && L.stage.current?.video) return L.stage.current.video;
+  return null;
+}
+function clipLayer(cueId) { return Object.entries(S.live.comp.active || {}).find(([, c]) => c === cueId)?.[0] || null; }
+function clipPosition(c) {
+  const v = findClipVideo(c.id);
+  if (v) return v.currentTime;
+  if (selCue()?.id === c.id && pvwMon?.current?.video) return pvwMon.current.video.currentTime;
+  return null;
+}
+let tlDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const tl = e.target.closest('[data-tl]');
+  if (!tl) return;
+  const c = cueById(tl.dataset.tl);
+  const dur = Number(tl.dataset.dur);
+  const track = tl.querySelector('.tl-track').getBoundingClientRect();
+  const at = (x) => Math.max(0, Math.min(dur, ((x - track.left) / track.width) * dur));
+  const h = e.target.closest('[data-tl-h]');
+  if (h) {
+    // Glisser une poignée de départ / fin.
+    e.preventDefault();
+    tlDrag = { el: h, key: h.dataset.tlH === 'in' ? 'inPoint' : 'outPoint', value: null };
+    h.setPointerCapture(e.pointerId);
+    const move = (ev) => { const t = at(ev.clientX); tlDrag.value = t; h.style.left = (t / dur) * 100 + '%'; tl.closest('.box').querySelector('[data-tl-now]').textContent = (tlDrag.key === 'inPoint' ? 'Départ ' : 'Fin ') + fmtTime(t * 1000); };
+    const up = () => {
+      h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up);
+      const v = tlDrag.value; const key = tlDrag.key; tlDrag = null;
+      if (v != null) send({ type: 'cue.update', id: c.id, patch: { [key]: Math.round(v * 100) / 100 } });
+      renderProps(true);
+    };
+    h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+    return;
+  }
+  // Clic dans la barre : déplacement dans le média (si le clip est à l'écran).
+  const layerId = clipLayer(c.id);
+  if (!layerId || !S.live.comp.pb?.[layerId]) return toast('Déclenchez le clip pour vous déplacer dans le média');
+  const t = at(e.clientX);
+  send({ type: 'comp.pb.seek', layerId, time: Math.max(0, (t - (+c.inPoint || 0)) / (c.speed || 1)) });
+});
 
 // ------------------------------------------------------------------ navigateur
 function sourceTemplates() {
@@ -694,6 +769,8 @@ document.addEventListener('click', async (e) => {
       if (!w) toast('Fenêtre bloquée par le navigateur : autorisez les fenêtres pop-up.');
     },
     'panel-fullscreen': () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
+    'tl-mark': () => { const pos = c && clipPosition(c); if (pos == null) return toast('Lancez le clip (ou sélectionnez-le pour l\'aperçu) pour marquer la position'); send({ type: 'cue.update', id: c.id, patch: { [b.dataset.k]: Math.round(pos * 100) / 100 } }); },
+    'tl-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { inPoint: 0, outPoint: null, fadeIn: 0, fadeOut: 0 } }),
     'crop-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { crop: { t: 0, r: 0, b: 0, l: 0 } } }),
     'media-optimize': () => { send({ type: 'media.optimize', id, height: Number(b.dataset.h) || undefined }); toast('Optimisation lancée en arrière-plan : le clip bascule tout seul sur la nouvelle version.'); },
     'reset-transform': () => setTarget(b.dataset.target, { transform: { x: 0, y: 0, scale: 1, rotate: 0 } }),
@@ -873,6 +950,7 @@ document.addEventListener('change', (e) => {
     if (k === 'deviceId') p.deviceLabel = cameras.find((d) => d.deviceId === v)?.label || '';
     if (k === 'fit' && v === '') p.fit = null;
     if (k === 'engine' && v === '') p.engine = null;
+    if (k === 'outPoint' && (el.value === '' || !(v > 0))) p.outPoint = null;
     return send({ type: 'cue.update', id: c.id, patch: p });
   }
   if (el.dataset.ndiSource !== undefined) {
@@ -1124,14 +1202,25 @@ setInterval(() => {
   td.textContent = fmtTime(v, true);
   td.className = 'timer-display' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < 120000 ? ' warn' : '') : '');
   $('#timer-toggle').textContent = S.timer.running ? '⏸' : '▶';
+  for (const tl of document.querySelectorAll('[data-tl]')) {
+    const c = cueById(tl.dataset.tl);
+    const head = tl.querySelector('[data-tl-head]');
+    const pos = c && clipPosition(c);
+    const label = tl.closest('.box').querySelector('[data-tl-now]');
+    if (pos == null || tlDrag) { head.hidden = true; if (!tlDrag) label.textContent = ''; continue; }
+    head.hidden = false;
+    head.style.left = (pos / Number(tl.dataset.dur)) * 100 + '%';
+    label.textContent = (clipLayer(c.id) ? '▶ ' : 'aperçu ') + fmtTime(pos * 1000) + ' / ' + fmtTime(Number(tl.dataset.dur) * 1000);
+  }
   for (const [layerId, pb] of Object.entries(S.live.comp.pb || {})) {
     const row = document.querySelector(`[data-tp="${layerId}"]`);
     if (!row) continue;
-    const vid = outMon?.layers.get(layerId)?.stage.current?.video;
-    const dur = vid?.duration || 0;
+    const L = outMon?.layers.get(layerId)?.stage.current;
+    const vid = L?.video;
     const cue = cueById(S.live.comp.active?.[layerId]);
-    let tt = pb.playing ? ((now - pb.startedAt) / 1000) * (cue?.speed || 1) : pb.offset;
-    if (dur && (cue?.loopMode || 'loop') === 'loop') tt %= dur;
+    // Position dans la fenêtre de lecture (départ → fin) du clip.
+    const dur = L?.clipLen && isFinite(L.clipLen) ? L.clipLen : vid?.duration || 0;
+    let tt = L?.clipT ?? (pb.playing ? ((now - pb.startedAt) / 1000) * (cue?.speed || 1) : pb.offset);
     tt = Math.max(0, dur ? Math.min(dur, tt) : tt);
     const seek = row.querySelector('[data-seek]');
     if (dur) seek.max = dur;

@@ -253,3 +253,15 @@ body.panel-mode .browser { font-size: 14px; }
 body.panel-mode .tab-body { padding: 16px max(16px, calc((100vw - 1100px) / 2)); }
 body.panel-mode .guests { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 body.panel-mode .qr { width: 160px; height: 160px; }
+
+/* Timeline des vidéos / sons */
+.tl { display: flex; flex-direction: column; gap: 3px; }
+.tl-track { position: relative; height: 34px; background: #0d0d10; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; touch-action: none; }
+.tl-range { position: absolute; top: 0; bottom: 0; background: linear-gradient(#2a2312, #1e1a10); border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent); overflow: hidden; }
+.tl-out { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, #121214 0 5px, #18181c 5px 10px); }
+.tl-fin { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(to right, rgba(0,0,0,.85), transparent); }
+.tl-fout { position: absolute; right: 0; top: 0; bottom: 0; background: linear-gradient(to left, rgba(0,0,0,.85), transparent); }
+.tl-h { position: absolute; top: -3px; bottom: -3px; width: 10px; margin-left: -5px; background: var(--accent); border-radius: 3px; cursor: ew-resize; z-index: 2; }
+.tl-h.out { background: var(--accent-hi); }
+.tl-head { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--live); box-shadow: 0 0 6px var(--live); z-index: 3; pointer-events: none; }
+.tl-times { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }

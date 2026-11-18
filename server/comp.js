@@ -216,6 +216,7 @@ export function compDispatch(store, a) {
       if (p.endedKey === key) return { ok: true };
       p.endedKey = key;
       const cue = store.cue(a.cueId);
+      if ((cue?.loopMode || 'loop') === 'loop') return { ok: true }; // en boucle : rien à faire
       if (cue?.loopMode === 'next') {
         const from = l.clips.indexOf(a.cueId);
         for (let k = 1; k <= l.clips.length; k++) {

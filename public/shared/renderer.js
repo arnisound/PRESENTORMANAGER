@@ -356,7 +356,7 @@ class Layer {
         if (d.type === 'audio') { el.innerHTML = `<div class="audio-badge">♪ ${esc(d.cue.name)}</div>`; v.style.display = 'none'; }
         el.append(v);
         v.addEventListener('ended', () => {
-          if (!this.stage.opts.reportEnded || v.loop) return;
+          if (!this.stage.opts.reportEnded || v.loop || this.wantsLoop(d.cue)) return;
           const layerId = this.stage.opts.compLayer;
           this.stage.opts.client?.send(layerId ? { type: 'comp.ended', layerId, cueId: d.cue.id, duration: v.duration } : { type: 'video.ended', cueId: d.cue.id, duration: v.duration });
         });
@@ -535,11 +535,35 @@ class Layer {
   activate() {
     this.active = true;
     this.syncMedia();
+    if (this.video) this.fadeLoop();
     if (this.slideMedia?.length && this.desc.cue?.slideVideos !== 'manual') {
       this.builtAt = this.stage.opts.client ? this.stage.opts.client.now() : Date.now();
       this.syncSlideMedia();
       this.slideTimer = setInterval(() => this.syncSlideMedia(), 300);
     }
+  }
+
+  // Fondus d'entrée / de sortie (image et son) selon la position dans la fenêtre de lecture.
+  fadeLoop() {
+    const v = this.video;
+    if (!v || this.destroyed) return;
+    const cue = this.desc.cue;
+    const fi = +cue.fadeIn || 0, fo = +cue.fadeOut || 0;
+    let f = 1;
+    if ((fi || fo) && this.stage.opts.compLayer) {
+      const inP = +cue.inPoint || 0;
+      const dur = v.duration || this.desc.media?.duration || 0;
+      const outP = cue.outPoint > inP ? Math.min(+cue.outPoint, dur || Infinity) : dur;
+      const t = v.currentTime - inP;
+      if (fi) f = Math.min(f, Math.max(0, t / fi));
+      if (fo && outP) f = Math.min(f, Math.max(0, (outP - v.currentTime) / fo));
+    }
+    if (this.fade !== f) {
+      this.fade = f;
+      v.style.opacity = f;
+      v.volume = this.volume(cue) * f;
+    }
+    requestAnimationFrame(() => this.fadeLoop());
   }
 
   // Vidéos intégrées à la diapo : démarrent à l'affichage de la diapo, calées
@@ -571,14 +595,19 @@ class Layer {
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
       this.video.loop = this.loops(desc.cue);
-      this.video.volume = this.volume(desc.cue);
+      this.video.volume = this.volume(desc.cue) * (this.fade ?? 1);
       this.syncMedia();
       if (!this.syncTimer) this.syncTimer = setInterval(() => this.syncMedia(), 250);
     }
   }
 
   // Dans la composition, les clips bouclent par défaut (comme en VJ) ; ailleurs, réglage "boucle".
-  loops(cue) { return this.stage.opts.compLayer ? (cue.loopMode || 'loop') === 'loop' : !!cue.loop; }
+  loops(cue) {
+    if (!this.stage.opts.compLayer) return !!cue.loop;
+    // Avec un point de départ / fin, la boucle est gérée à la main (entre ces deux points).
+    return (cue.loopMode || 'loop') === 'loop' && !(cue.inPoint > 0 || cue.outPoint > 0);
+  }
+  wantsLoop(cue) { return this.stage.opts.compLayer ? (cue.loopMode || 'loop') === 'loop' : !!cue.loop; }
   volume(cue) { return Math.max(0, Math.min(1, (cue.volume ?? 1) * (this.stage.opts.volumeFor?.() ?? 1))); }
 
   // Lecture calée sur l'horloge du serveur : toutes les sorties restent synchronisées.
@@ -607,13 +636,37 @@ class Layer {
     const pb = pf ? pf(this.desc.cue.id) : this.stage.state?.live?.playback;
     const client = this.stage.opts.client;
     if (!pb || (!pf && pb.cueId !== this.desc.cue.id) || !client) { if (!v.paused) v.pause(); return; }
-    const speed = Math.max(0.1, Math.min(4, this.desc.cue.speed || 1));
-    let target = pb.playing ? ((client.now() - pb.startedAt) / 1000) * speed : pb.offset;
-    const dur = v.duration || Infinity;
-    if (v.loop && isFinite(dur) && dur > 0) target = ((target % dur) + dur) % dur;
-    if (target < 0) { if (!v.paused) v.pause(); if (v.currentTime > 0.05) v.currentTime = 0; return; }
-    if (target >= dur && !v.loop) return;
+    const cue = this.desc.cue;
+    const speed = Math.max(0.1, Math.min(4, cue.speed || 1));
+    const dur = v.duration || this.desc.media?.duration || Infinity;
+    // Fenêtre de lecture (timeline) : point de départ, point de fin.
+    const inP = Math.max(0, Math.min(+cue.inPoint || 0, isFinite(dur) ? dur - 0.05 : Infinity));
+    const outP = cue.outPoint > inP ? Math.min(+cue.outPoint, dur) : dur;
+    const len = outP - inP;
+    let clipT = pb.playing ? ((client.now() - pb.startedAt) / 1000) * speed : pb.offset;
+    if (clipT < 0) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - inP) > 0.05) v.currentTime = inP; return; }
+    let wrapped = false;
+    if (this.wantsLoop(cue) && isFinite(len) && len > 0) {
+      const lap = Math.floor(clipT / len);
+      wrapped = this.lap != null && lap !== this.lap;
+      this.lap = lap;
+      clipT -= lap * len;
+    } else if (isFinite(len) && clipT >= len) {
+      // Fin de la fenêtre : arrêt sur la dernière image, et fin signalée (clip suivant, etc.).
+      if (!v.paused) v.pause();
+      if (Math.abs(v.currentTime - outP) > 0.1) v.currentTime = Math.max(inP, outP - 0.04);
+      const key = cue.id + ':' + pb.startedAt;
+      if (this.stage.opts.reportEnded && this.endedKey !== key && pb.playing) {
+        this.endedKey = key;
+        const layerId = this.stage.opts.compLayer;
+        if (layerId) this.stage.opts.client?.send({ type: 'comp.ended', layerId, cueId: cue.id, duration: len });
+      }
+      return;
+    }
+    const target = inP + clipT;
+    this.clipT = clipT; this.clipLen = len;
     const drift = v.currentTime - target;
+    if (wrapped) { v.currentTime = target; this.lastSeek = performance.now(); }
     if (pb.playing) {
       // Recalage doux : un « saut » seulement si l'écart est grand (et pas plus d'une fois
       // toutes les 3 s) ; sinon légère accélération / ralentissement. Les écrans de
@@ -675,6 +728,7 @@ class Layer {
   }
 
   destroy() {
+    this.destroyed = true;
     clearInterval(this.syncTimer);
     clearInterval(this.slideTimer);
     this.webview?.remove();

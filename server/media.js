@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import AdmZip from 'adm-zip';
-import { prepareVideo } from './video.js';
+import { prepareVideo, probeFull, ffmpeg } from './video.js';
 
 const KINDS = {
   slides: ['pdf'],
@@ -271,6 +271,8 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
     media.status = 'ready';
     // Vidéos : analyse, vignette et proxy en arrière-plan (le média est déjà utilisable).
     if (kind === 'video') queueVideo(() => prepareVideo(media, filePath, mediaDir, onUpdate));
+    // Sons : durée (pour la timeline).
+    if (kind === 'audio' && ffmpeg()) queueVideo(async () => { const i = await probeFull(filePath); media.duration = i.duration; onUpdate(); });
   } catch (e) {
     media.status = 'error';
     media.error = e.message;

@@ -30,6 +30,11 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - vitesse et volume ;
   - cadrage, position, effets et masque.
 - **Vidéos lourdes (4K, HEVC, ProRes…)** : à l'import, ffmpeg (fourni avec l'app) analyse la vidéo, calcule sa vignette et crée une version allégée pour les écrans de la régie. Les sorties gardent le fichier d'origine. Le bouton **⚡ Optimiser** réencode en H.264 (lisible partout, même résolution), et **⚡ 1080p** crée une version beaucoup plus légère. Le clip bascule tout seul sur la nouvelle version.
+- **Timeline des vidéos et des sons** (onglet *Clip*) :
+  - point de départ et de fin, à glisser, à saisir, ou à marquer à la position actuelle ;
+  - fondu d'entrée et de sortie (image et son) ;
+  - boucle entre ces deux points ;
+  - tête de lecture en direct, et clic dans la barre pour se déplacer.
 - **Rogner** : chaque clip peut être rogné en haut, en bas, à gauche et à droite (bordures, bandes noires, barres de titre). La partie gardée remplit le cadre.
 - **Curseurs précis** : case de saisie exacte, molette (Maj = ×10), Maj pendant le glissé pour le réglage fin, double-clic sur le libellé = valeur par défaut.
 - **Panneaux détachables** (↗ dans la barre d'onglets) : Public et visio, Direct, Sorties… s'ouvrent dans une fenêtre séparée, à placer sur un autre écran ou en plein écran (⛶).
@@ -72,7 +77,12 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - NDI (images par seconde, résolution) ;
   - commandes à distance ;
   - sauvegarde et restauration du show.
-- **Télécommande smartphone** (`/remote/`) : suivant / précédent, notes, chrono.
+- **Télécommande smartphone** (`/remote/`) :
+  - image de sortie (PGM) ;
+  - diapo en cours et diapo suivante ;
+  - notes du présentateur en grand (taille réglable A− / A+) ;
+  - chrono et messages de la régie ;
+  - boutons compacts : précédent, noir, suivant.
 
 ## Démarrer
 

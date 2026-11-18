@@ -12,7 +12,7 @@ import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
 import { processMedia, kindOf, officeConverters, queueVideo } from './media.js';
-import { prepareVideo, optimizeVideo, ffmpeg } from './video.js';
+import { prepareVideo, optimizeVideo, ffmpeg, probeFull } from './video.js';
 import { startNdiDiscovery } from './ndi.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,6 +35,7 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
   for (const m of store.state.media) {
     if (m.optimize) m.optimize = null;
     if (m.kind === 'video' && !m.thumb && ffmpeg()) queueVideo(() => prepareVideo(m, path.join(mediaDirPath, m.file), mediaDirPath, () => store.emit()));
+    if (m.kind === 'audio' && m.duration == null && ffmpeg()) queueVideo(async () => { m.duration = (await probeFull(path.join(mediaDirPath, m.file))).duration; store.emit(); });
   }
   const mediaDir = path.join(dataDir, 'media');
   const app = express();

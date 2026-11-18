@@ -2,43 +2,60 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#0b0e14">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Télécommande — PresenThor</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <link rel="stylesheet" href="/shared/stage.css">
 <style>
-  :root { color-scheme: dark; --pgm: #e11d48; }
+  :root { color-scheme: dark; --pgm: #e11d48; --accent: #c48626; --notes: 22px; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: #0b0e14; color: #e6e9ef; font-family: system-ui, -apple-system, sans-serif; }
-  body { display: flex; flex-direction: column; padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); gap: 10px; user-select: none; }
-  .head { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; }
-  .timer { font-size: 34px; font-weight: 800; } .timer.warn { color: #f59e0b; } .timer.over { color: #ef4444; }
-  .clock { color: #94a3b8; font-size: 18px; } .off { color: #ef4444; font-size: 13px; }
-  .stage, #stage { aspect-ratio: 16/9; border-radius: 8px; outline: 3px solid var(--pgm); position: relative; }
-  .info { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: #94a3b8; }
-  .info b { color: #e6e9ef; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .notes { flex: 1; min-height: 60px; overflow: auto; background: #121722; border-radius: 8px; padding: 10px; font-size: 17px; line-height: 1.4; white-space: pre-wrap; }
-  .notes:empty::before { content: "Pas de notes"; color: #475569; }
-  .pad { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; height: 30vh; min-height: 150px; }
-  .pad button { border: 0; border-radius: 14px; font-size: 26px; font-weight: 800; color: #fff; background: #1f2937; touch-action: manipulation; }
-  .pad button:active { filter: brightness(1.3); transform: scale(.98); }
-  .pad .next { background: #2563eb; }
-  .row { display: flex; gap: 10px; }
-  .row button { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #253045; background: #121722; color: #e6e9ef; font-weight: 700; font-size: 15px; }
-  .row button.on { background: #7c3aed; border-color: #7c3aed; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: #0a0a0b; color: #e7e5e4; font-family: system-ui, -apple-system, sans-serif; }
+  body { display: flex; flex-direction: column; padding: max(8px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom)); gap: 8px; user-select: none; }
+  .head { display: flex; justify-content: space-between; align-items: center; font-variant-numeric: tabular-nums; }
+  .timer { font-size: 30px; font-weight: 800; letter-spacing: -.02em; } .timer.warn { color: #f59e0b; } .timer.over { color: #ef4444; }
+  .clock { color: #94a3b8; font-size: 17px; font-weight: 600; } .off { color: #ef4444; font-size: 12px; font-weight: 700; }
+  .pgm-wrap { position: relative; }
+  #pgm { aspect-ratio: 16/9; border-radius: 8px; outline: 3px solid var(--pgm); position: relative; }
+  #pgm > .comp { position: absolute; inset: 0; border-radius: 8px; }
+  .pgm-tag { position: absolute; left: 6px; top: 6px; z-index: 5; background: var(--pgm); color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .08em; padding: 2px 7px; border-radius: 4px; }
+  .pgm-tag.black { background: #7c3aed; }
+  .deck { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+  .deck .name { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deck .count { font-size: 30px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1; }
+  .deck .count small { font-size: 16px; color: #8f8f99; font-weight: 600; }
+  .nextrow { display: grid; grid-template-columns: 34% 1fr; gap: 10px; align-items: center; }
+  #next { aspect-ratio: 16/9; border-radius: 6px; outline: 2px solid #3f3f46; position: relative; }
+  #next > .stage { position: absolute; inset: 0; border-radius: 6px; }
+  .nextinfo { font-size: 14px; color: #a8a29e; } .nextinfo b { display: block; color: #e7e5e4; font-size: 16px; }
+  .notes { flex: 1; min-height: 80px; overflow: auto; background: #131315; border-radius: 10px; padding: 12px 14px; font-size: var(--notes); line-height: 1.38; white-space: pre-wrap; -webkit-overflow-scrolling: touch; user-select: text; }
+  .notes:empty::before { content: "Pas de notes pour cette diapo"; color: #52525b; }
+  .msg { background: #facc15; color: #111; font-weight: 800; font-size: 20px; padding: 10px 12px; border-radius: 10px; text-align: center; }
+  .bar { display: grid; grid-template-columns: 1fr 52px 52px 52px 2fr; gap: 8px; }
+  .bar button { height: 58px; border: 0; border-radius: 12px; font-size: 20px; font-weight: 800; color: #fff; background: #1f1f24; touch-action: manipulation; }
+  .bar button.sm { font-size: 14px; }
+  .bar button:active { filter: brightness(1.35); transform: scale(.97); }
+  .bar .next { background: var(--accent); color: #111; font-size: 18px; }
+  .bar .on { background: #7c3aed; }
 </style>
 </head>
 <body>
-  <div class="head"><span class="timer" id="timer">--:--</span><span class="off" id="off" hidden>hors ligne</span><span class="clock" id="clock"></span></div>
-  <div id="stage"></div>
-  <div class="info"><b id="cur">—</b><span id="count"></span></div>
-  <div class="info"><span>Suivant : <b id="next">—</b></span></div>
+  <div class="head"><span class="timer" id="timer">--:--</span><span class="off" id="off" hidden>HORS LIGNE</span><span class="clock" id="clock"></span></div>
+  <div class="pgm-wrap"><span class="pgm-tag" id="pgm-tag">PGM</span><div id="pgm"></div></div>
+  <div id="msg" class="msg" hidden></div>
+  <div class="deck" id="deck"><div class="name" id="cur">—</div><div class="count" id="count"></div></div>
+  <div class="nextrow" id="nextrow"><div id="next"></div><div class="nextinfo">Suivant<b id="nextname">—</b></div></div>
   <div class="notes" id="notes"></div>
-  <div class="row"><button id="black">Écran noir</button><button id="take">Tout vider</button></div>
-  <div class="pad"><button id="prev">◀</button><button id="nextBtn" class="next">SUIVANT ▶</button></div>
+  <div class="bar">
+    <button id="prev" aria-label="Précédent">◀</button>
+    <button id="black" class="sm" aria-label="Écran noir">NOIR</button>
+    <button id="font-" class="sm" aria-label="Texte plus petit">A−</button>
+    <button id="font+" class="sm" aria-label="Texte plus grand">A+</button>
+    <button id="nextBtn" class="next">SUIVANT ▶</button>
+  </div>
 <script type="module">
 import { Client, fmtTime, timerValue } from '/shared/client.js';
 import { Stage, describe } from '/shared/renderer.js';
@@ -46,29 +63,50 @@ import { CompositionView, deckInfo } from '/shared/composition.js';
 const $ = (s) => document.getElementById(s);
 let S;
 const client = new Client({ role: 'control', onState: render, onStatus: (s) => ($('off').hidden = s === 'online') });
-const stage = new CompositionView($('stage'), { client, monitor: true, overlays: true });
+// PGM : exactement ce que voit le public (tous les calques, bandeau compris).
+const pgm = new CompositionView($('pgm'), { client, monitor: true, overlays: true });
+const next = new Stage($('next'), { client, monitor: true });
 const act = (type) => { navigator.vibrate?.(15); client.send({ type }); };
 $('nextBtn').onclick = () => act('next');
 $('prev').onclick = () => act('prev');
 $('black').onclick = () => act('blackout.toggle');
-$('take').onclick = () => act('comp.clear');
+
+// Taille du texte des notes, mémorisée sur le téléphone.
+let size = 22;
+try { size = +localStorage.getItem('presenthor.notes') || 22; } catch {}
+const applySize = () => { document.documentElement.style.setProperty('--notes', size + 'px'); try { localStorage.setItem('presenthor.notes', size); } catch {} };
+$('font-').onclick = () => { size = Math.max(14, size - 2); applySize(); };
+$('font+').onclick = () => { size = Math.min(44, size + 2); applySize(); };
+applySize();
+
 function render(s) {
   S = s;
-  stage.update(s);
+  pgm.update(s);
+  $('pgm-tag').textContent = s.live.blackout ? 'NOIR' : 'PGM';
+  $('pgm-tag').classList.toggle('black', !!s.live.blackout);
+  $('black').classList.toggle('on', !!s.live.blackout);
   const d = deckInfo(s);
   const col = s.live.comp?.column;
-  $('cur').textContent = d ? d.cue.name : col != null ? s.comp.columns[col]?.name : '—';
-  $('next').textContent = d?.next ? 'diapo ' + d.next : (col != null && s.comp.columns[col + 1] ? s.comp.columns[col + 1].name : 'fin');
-  $('count').textContent = d ? d.slide + ' / ' + d.pages : '';
+  $('cur').textContent = d ? d.cue.name : col != null ? s.comp.columns[col]?.name || '—' : '—';
+  $('count').innerHTML = d ? `${d.slide}<small> / ${d.pages}</small>` : '';
   $('notes').textContent = d?.notes || '';
-  $('black').classList.toggle('on', s.live.blackout);
+  if (d?.next) {
+    next.update(s, describe(s, { cueId: d.cue.id, slide: d.next }));
+    $('nextname').textContent = 'Diapo ' + d.next;
+  } else {
+    next.update(s, { key: 'none', type: 'black' });
+    $('nextname').textContent = col != null && s.comp.columns[col + 1] ? s.comp.columns[col + 1].name : d ? 'Dernière diapo' : 'fin';
+  }
+  const fresh = s.message && client.now() - s.message.at < 10 * 60 * 1000;
+  $('msg').hidden = !fresh;
+  if (fresh) $('msg').textContent = s.message.text;
 }
 setInterval(() => {
   $('clock').textContent = new Date(client.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   if (!S) return;
   const v = timerValue(S.timer, client.now());
   $('timer').textContent = fmtTime(v, true);
-  $('timer').className = 'timer' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < 120000 ? ' warn' : '') : '');
+  $('timer').className = 'timer' + (S.timer.mode === 'down' ? (v < 0 ? ' over' : v < (S.settings.timerWarnSec ?? 120) * 1000 ? ' warn' : '') : '');
 }, 250);
 navigator.wakeLock?.request('screen').catch(() => {});
 </script>
