@@ -2,6 +2,8 @@
 
 # PresenThor
 
+**by [arnisoundtools.com](https://arnisoundtools.com)**
+
 Logiciel de diffusion pour événements : il gère sur grand écran les présentations PowerPoint, vidéos, images, visioconférences, sondages et questions du public. Il pilote plusieurs sorties vidéo et ne coupe pas l'image entre deux médias.
 
 Il fonctionne de trois façons, à partir du même code :
@@ -184,4 +186,4 @@ electron/      App Mac/PC : serveur embarqué, sorties plein écran par écran p
 test/          Tests de la logique de régie et du mapping (npm test)
 ```
 
-NDI® est une marque déposée de Vizrt NDI AB.
+PresenThor — © arnisoundtools.com. NDI® est une marque déposée de Vizrt NDI AB.

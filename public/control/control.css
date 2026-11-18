@@ -233,3 +233,6 @@ input[type=range] { accent-color: var(--accent); }
 .switch input:checked + span::before { transform: translateX(18px); }
 .api-row { display: grid; grid-template-columns: 170px 1fr; gap: 8px; font-size: 11px; align-items: center; }
 .api-row code { color: #fcd34d; word-break: break-all; user-select: all; }
+.brand-txt { display: flex; flex-direction: column; line-height: 1.1; }
+.brand-by { font-size: 9px; color: var(--muted); text-decoration: none; letter-spacing: .02em; }
+.brand-by:hover { color: var(--accent); }

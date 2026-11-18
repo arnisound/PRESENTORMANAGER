@@ -16,7 +16,7 @@
   },
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "PresenThor — régie de diffusion multi-écrans pour événements",
+  "description": "PresenThor by arnisoundtools.com — régie de diffusion multi-écrans pour événements",
   "scripts": {
     "start": "node server/start.js",
     "desktop": "electron .",
@@ -25,7 +25,10 @@
     "dist:linux": "electron-builder --linux",
     "test": "node --test test/*.test.js"
   },
-  "author": "PresenThor",
+  "author": {
+    "name": "arnisoundtools.com",
+    "url": "https://arnisoundtools.com"
+  },
   "build": {
     "appId": "com.presenthor.app",
     "productName": "PresenThor",
@@ -66,7 +69,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "PresenThor"
     },
     "linux": {
       "target": [
@@ -74,9 +78,11 @@
       ]
     },
     "icon": "build/icon.png",
-    "artifactName": "PresenThor-${version}-${os}-${arch}.${ext}"
+    "artifactName": "PresenThor-${version}-${os}-${arch}.${ext}",
+    "copyright": "© 2026 arnisoundtools.com"
   },
   "optionalDependencies": {
     "@stagetimerio/grandiose": "^0.2.1"
-  }
+  },
+  "homepage": "https://arnisoundtools.com"
 }

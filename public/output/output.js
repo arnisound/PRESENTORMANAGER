@@ -250,7 +250,8 @@ function renderPicker(state) {
   view = null;
   app.innerHTML = `<div class="picker"><img class="picker-logo" src="/brand/logo-192.png" alt="PresenThor"><h1>Choisir la sortie de cet écran</h1>
     <p>Ouvrez cette page sur l'ordinateur relié à l'écran, puis passez en plein écran (double-clic ou F11).</p>
-    ${state.outputs.map((o) => `<a href="?id=${encodeURIComponent(o.id)}">${esc(o.name)} <small>${esc(o.source)}</small></a>`).join('')}</div>`;
+    ${state.outputs.map((o) => `<a href="?id=${encodeURIComponent(o.id)}">${esc(o.name)} <small>${esc(o.source)}</small></a>`).join('')}
+    <p><small>PresenThor by arnisoundtools.com</small></p></div>`;
 }
 
 function onAutoplayBlocked(unmute) {

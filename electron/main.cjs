@@ -133,6 +133,10 @@ function buildMenu() {
     ] },
     { role: 'viewMenu', label: 'Affichage' },
     { role: 'windowMenu', label: 'Fenêtre' },
+    { label: 'Aide', submenu: [
+      { label: 'À propos de PresenThor', click: () => app.showAboutPanel() },
+      { label: 'arnisoundtools.com', click: () => shell.openExternal('https://arnisoundtools.com') },
+    ] },
   ]));
 }
 
@@ -217,7 +221,7 @@ app.whenReady().then(async () => {
   server.store.onChange((st, kind) => { if (kind !== 'ndi' && kind !== 'votes') syncNdi(); });
   syncNdi();
 
-  app.setAboutPanelOptions({ applicationName: 'PresenThor', applicationVersion: app.getVersion(), iconPath: ICON, copyright: 'PresenThor' });
+  app.setAboutPanelOptions({ applicationName: 'PresenThor', applicationVersion: app.getVersion(), iconPath: ICON, copyright: '© ' + new Date().getFullYear() + ' arnisoundtools.com', website: 'https://arnisoundtools.com', authors: ['arnisoundtools.com'] });
   if (process.platform === 'darwin') app.dock?.setIcon(ICON);
   buildMenu();
   control = new BrowserWindow({
