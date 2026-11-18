@@ -11,7 +11,8 @@ import multer from 'multer';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
-import { processMedia, kindOf, officeConverters } from './media.js';
+import { processMedia, kindOf, officeConverters, queueVideo } from './media.js';
+import { prepareVideo, optimizeVideo, ffmpeg } from './video.js';
 import { startNdiDiscovery } from './ndi.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,6 +29,13 @@ export function lanAddresses() {
 export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = path.join(ROOT, 'data'), pin = process.env.PRESENTHOR_PIN || process.env.PRESENTOR_PIN || '' } = {}) {
   const store = new Store(dataDir);
   const stopNdi = startNdiDiscovery(store);
+  const mediaDirPath = path.join(dataDir, 'media');
+  store.mediaTasks = { optimize: (m, opts) => optimizeVideo(m, mediaDirPath, () => store.emit(), opts) };
+  // Shows existants : prépare en arrière-plan les vidéos importées avant cette version.
+  for (const m of store.state.media) {
+    if (m.optimize) m.optimize = null;
+    if (m.kind === 'video' && !m.thumb && ffmpeg()) queueVideo(() => prepareVideo(m, path.join(mediaDirPath, m.file), mediaDirPath, () => store.emit()));
+  }
   const mediaDir = path.join(dataDir, 'media');
   const app = express();
   const server = http.createServer(app);

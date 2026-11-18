@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import AdmZip from 'adm-zip';
+import { prepareVideo } from './video.js';
 
 const KINDS = {
   slides: ['pdf'],
@@ -235,6 +236,10 @@ function decode(s) {
   return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
 
+// Préparations vidéo une par une (ffmpeg est gourmand).
+let videoQueue = Promise.resolve();
+export function queueVideo(job) { videoQueue = videoQueue.then(job).catch(() => {}); return videoQueue; }
+
 // Traite un fichier fraîchement uploadé. Met à jour l'objet media au fil de l'eau.
 export async function processMedia(media, filePath, mediaDir, onUpdate) {
   const kind = kindOf(media.name);
@@ -264,6 +269,8 @@ export async function processMedia(media, filePath, mediaDir, onUpdate) {
       media.kind = kind;
     }
     media.status = 'ready';
+    // Vidéos : analyse, vignette et proxy en arrière-plan (le média est déjà utilisable).
+    if (kind === 'video') queueVideo(() => prepareVideo(media, filePath, mediaDir, onUpdate));
   } catch (e) {
     media.status = 'error';
     media.error = e.message;

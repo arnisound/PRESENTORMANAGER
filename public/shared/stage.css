@@ -95,3 +95,13 @@ blockquote { font-size: 4.6cqw; font-weight: 650; line-height: 1.25; margin: 0; 
 .lower-third.lt-light { background: rgba(255,255,255,.92); color: #111; }
 .lower-third.lt-center { animation-name: lt-fade; }
 @keyframes lt-fade { from { opacity: 0; } }
+
+/* Rognage des clips */
+.layer .fit, .layer video, .layer img { object-view-box: var(--crop, none); }
+.layer .slide-box canvas { object-view-box: var(--crop, none); object-fit: contain; }
+.layer .web-view, .layer iframe { transform-origin: 0 0; transform: var(--web-crop, none); }
+.layer { overflow: hidden; }
+/* Page web : message d'erreur de chargement */
+.web-error { position: absolute; inset: auto 4% 6% 4%; background: rgba(127,29,29,.92); color: #fff; padding: 1.5cqh 2cqw; border-radius: 1cqh;
+  display: flex; flex-direction: column; gap: .5cqh; font: 500 clamp(10px, 1.6cqw, 22px) system-ui, sans-serif; z-index: 3; }
+.web-error small { opacity: .8; word-break: break-all; }

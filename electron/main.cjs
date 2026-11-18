@@ -232,6 +232,8 @@ app.whenReady().then(async () => {
   control.on('closed', () => { control = null; app.quit(); });
   control.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(server.url + '/output/')) return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, backgroundColor: '#000' } };
+    // Panneaux détachés de la régie (Public, Direct…) : fenêtres de l'app, déplaçables sur un autre écran.
+    if (url.startsWith(server.url + '/control/?panel=')) return { action: 'allow', overrideBrowserWindowOptions: { width: 980, height: 900, autoHideMenuBar: true, backgroundColor: '#0a0a0b', icon: ICON, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: false, webviewTag: true, backgroundThrottling: false } } };
     shell.openExternal(url);
     return { action: 'deny' };
   });

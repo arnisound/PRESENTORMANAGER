@@ -28,11 +28,18 @@ const FX = {
 };
 const LOOP_MODES = [['loop', 'Boucle'], ['once', 'Une fois (reste sur la fin)'], ['next', 'Puis clip suivant du calque'], ['clear', 'Une fois puis vider le calque']];
 
+// Fenêtre détachée (« ?panel=public » ou « ?panel=live ») : un seul panneau, plein écran.
+const PANEL = new URLSearchParams(location.search).get('panel');
+const PANEL_NAMES = { public: 'Public et visio', live: 'Direct', outputs: 'Sorties', media: 'Médias', sources: 'Sources', fx: 'Effets', settings: 'Infos' };
+if (PANEL) { document.body.classList.add('panel-mode'); document.title = (PANEL_NAMES[PANEL] || PANEL) + ' — PresenThor'; }
+// Coordination entre la régie et ses fenêtres détachées (retour visio).
+const bc = 'BroadcastChannel' in window ? new BroadcastChannel('presenthor-regie') : null;
+
 let S = null;
 let sel = null; // { layerId, col } case sélectionnée
 let selLayerId = null;
 let ptab = 'clip';
-let btab = 'media';
+let btab = PANEL || 'media';
 let displays = [];
 let cameras = [];
 let info = { lan: [] };
@@ -48,8 +55,9 @@ const send = async (action) => {
 bindClicker(client);
 window.__presenthorAction = (a) => send(a); // télécommande globale (app desktop)
 
-const outMon = new CompositionView($('#out-mon'), { client, monitor: true, overlays: true, reportEnded: true });
-const pvwMon = new Stage($('#pvw-mon'), { client, monitor: true, clipStyle: true, free: true });
+// Moniteurs : seulement dans la régie principale (inutile de décoder des vidéos dans une fenêtre détachée).
+const outMon = PANEL ? null : new CompositionView($('#out-mon'), { client, monitor: true, overlays: true, reportEnded: true });
+const pvwMon = PANEL ? null : new Stage($('#pvw-mon'), { client, monitor: true, clipStyle: true, free: true });
 
 fetch('/api/info').then((r) => r.json()).then((i) => { info = i; renderBrowser(true); });
 joinUrl(null).then((u) => { voteUrl = u; });
@@ -64,7 +72,17 @@ const cueById = (id) => S?.cues.find((c) => c.id === id);
 const mediaById = (id) => S?.media.find((m) => m.id === id);
 const layerById = (id) => S?.comp.layers.find((l) => l.id === id);
 const selCue = () => (sel ? cueById(layerById(sel.layerId)?.clips[sel.col]) : null);
-const isEditing = (el) => { const a = document.activeElement; return a && el.contains(a) && (a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['range', 'checkbox', 'color'].includes(a.type))); };
+// Un curseur en cours de glissé ne doit jamais être redessiné (sinon il « saute »).
+let dragRange = null;
+document.addEventListener('pointerdown', (e) => { if (e.target.matches?.('input[type=range]')) dragRange = e.target; }, true);
+const endDrag = () => { if (!dragRange) return; const r = dragRange; dragRange = null; r.blur(); setTimeout(() => S && renderAll(), 60); };
+document.addEventListener('pointerup', endDrag, true);
+document.addEventListener('pointercancel', endDrag, true);
+const isEditing = (el) => {
+  if (dragRange && el.contains(dragRange)) return true;
+  const a = document.activeElement;
+  return a && el.contains(a) && (a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['range', 'checkbox', 'color'].includes(a.type)));
+};
 function patch(el, html, force = false) {
   if (!force && isEditing(el)) return;
   if (el._html === html) return;
@@ -118,6 +136,8 @@ function thumbHtml(cue) {
     case 'image': return m ? img('/media/' + m.file) : icon();
     case 'video': {
       if (!m) return icon();
+      if (m.thumb) return img('/media/' + m.thumb) + (m.width ? `<span class="slide-n">${m.height >= 2000 ? '4K' : m.height >= 1000 ? 'HD' : m.height + 'p'}${m.needsOptimize ? ' ⚠' : ''}</span>` : '');
+      if (m.heavy || m.width == null) return icon(m.codec ? '' : 'analyse…');
       const k = 'v:' + m.file;
       requestThumb(k, () => videoThumb('/media/' + m.file));
       return thumbs.get(k) ? img(thumbs.get(k)) : icon();
@@ -160,7 +180,7 @@ function renderAll() {
   document.documentElement.style.setProperty('--cell-w', (S.settings.cellSize || 132) + 'px');
   keepGuests();
   if (document.activeElement !== $('#show-name')) $('#show-name').value = S.show.name;
-  document.title = S.show.name + ' — PresenThor';
+  document.title = (PANEL ? (PANEL_NAMES[PANEL] || PANEL) + ' · ' : '') + S.show.name + ' — PresenThor';
   const c = S.clients;
   const nOut = Object.keys(c.outputs).length;
   $('#clients').textContent = `${nOut} écran${nOut > 1 ? 's' : ''} · ${c.audience} participant${c.audience > 1 ? 's' : ''}`;
@@ -169,12 +189,13 @@ function renderAll() {
   const d = deckInfo(S);
   $('#deck').hidden = !d;
   if (d) $('#deck-label').textContent = `${d.cue.name} · ${d.slide}/${d.pages}`;
-  outMon.update(S);
+  outMon?.update(S);
   const active = Object.values(S.live.comp.active || {}).length;
   $('#out-info').textContent = S.live.blackout ? 'NOIR' : `${active} calque${active > 1 ? 's' : ''} actif${active > 1 ? 's' : ''}`;
   const cue = selCue();
-  pvwMon.update(S, cue ? describe(S, { cueId: cue.id, slide: S.live.comp.slides?.[cue.id] || 1 }) : { key: 'none', type: 'black' });
+  pvwMon?.update(S, cue ? describe(S, { cueId: cue.id, slide: S.live.comp.slides?.[cue.id] || 1 }) : { key: 'none', type: 'black' });
   $('#pvw-info').textContent = cue ? cue.name : 'Sélectionnez un clip';
+  if (PANEL) return renderBrowser();
   renderGrid();
   renderTransport();
   renderProps();
@@ -233,8 +254,14 @@ function renderTransport() {
 }
 
 // ------------------------------------------------------------------ propriétés
+// Curseur : glisser (Maj = plus fin), molette pour ajuster, case pour saisir la valeur exacte,
+// double-clic sur le libellé = valeur par défaut.
+const DEFAULTS = { opacity: 1, volume: 1, master: 1, speed: 1, 'transform.x': 0, 'transform.y': 0, 'transform.scale': 1, 'transform.rotate': 0 };
 function sliderRow(label, bind, value, min, max, step, unit = '') {
-  return `<label class="slider"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-bind="${bind}"><output>${fmt2(value)}${unit}</output></label>`;
+  const key = bind.split(':')[1];
+  return `<div class="slider"><span data-reset="${bind}" data-def="${DEFAULTS[key] ?? ''}" title="Double-clic : valeur par défaut">${label}</span>
+    <input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-bind="${bind}" data-step="${step}">
+    <input type="number" class="num" min="${min}" max="${max}" step="${step}" value="${fmt2(value)}" data-bind="${bind}">${unit ? `<i>${unit}</i>` : '<i></i>'}</div>`;
 }
 function transformBlock(target, t = {}) {
   return `<div class="box"><b>Position / taille</b>
@@ -324,6 +351,8 @@ function clipProps() {
   if (c.type === 'web') {
     h += field('URL (Zoom, Teams, Meet, sondage, site…)', `<input type="url" ${f('url')} value="${esc(c.url || '')}" placeholder="https://…">`);
     h += field('Zoom de la page', `<select ${f('zoom')} data-type="number">${sel_([[0.5, '50 %'], [0.75, '75 %'], [1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], c.zoom ?? 1)}</select>`);
+    h += check('Ne pas charger la page dans les aperçus de la régie (visio, page lourde)', `${f('noPreview')} data-type="bool"`, c.noPreview);
+    h += `<span class="hint">${desktop ? 'Dans l\'app, la page s\'ouvre dans un vrai navigateur intégré. Si elle ne charge pas, la raison s\'affiche sur l\'écran.' : 'Dans un navigateur, beaucoup de sites refusent d\'être intégrés : utilisez l\'app Mac / PC.'}</span>`;
   }
   if (c.type === 'camera') {
     h += field('Source (webcam, carte d\'acquisition HDMI/SDI, NDI virtuel…)', `<select ${f('deviceId')}>${sel_([['', 'Par défaut'], ...cameras.map((d) => [d.deviceId, d.label || 'Caméra'])], c.deviceId)}</select>`);
@@ -370,6 +399,13 @@ function clipProps() {
   if (['video', 'image', 'slides', 'camera', 'ndi', 'web', 'scene'].includes(c.type)) {
     h += field('Cadrage', `<select ${f('fit')}>${sel_([['', 'Entier (bandes noires)'], ['cover', 'Remplir (recadré)'], ['fill', 'Étirer']], c.fit || '')}</select>`);
   }
+  if (!['audio', 'black', 'color'].includes(c.type)) {
+    const cr = c.crop || {};
+    h += `<div class="box"><b>Rogner</b><span class="hint">Retire les bordures, bandes noires, barres de titre… La partie gardée remplit le cadre.</span>
+      ${sliderRow('Haut', 'clip:crop.t', cr.t || 0, 0, 45, 0.5, '%')}${sliderRow('Bas', 'clip:crop.b', cr.b || 0, 0, 45, 0.5, '%')}
+      ${sliderRow('Gauche', 'clip:crop.l', cr.l || 0, 0, 45, 0.5, '%')}${sliderRow('Droite', 'clip:crop.r', cr.r || 0, 0, 45, 0.5, '%')}
+      <div class="row"><button class="btn sm" data-act="crop-reset">Annuler le rognage</button></div></div>`;
+  }
   h += transformBlock('clip', c.transform);
   h += effectsBlock('clip', c.effects, c.mask);
   h += field('Notes pour le présentateur', `<textarea ${f('notes')}>${esc(c.notes || '')}</textarea>`);
@@ -402,6 +438,7 @@ function sourceTemplates() {
 function renderBrowser(force = false) {
   if (!S) return;
   for (const b of $('#br-tabs').children) b.classList.toggle('active', b.dataset.btab === btab);
+  $('#popout').title = `Ouvrir « ${PANEL_NAMES[btab] || btab} » dans une fenêtre séparée (autre écran, plein écran…)`;
   const el = $('#browser');
   const html = { media: tabMedia, sources: tabSources, fx: tabFx, outputs: tabOutputs, public: tabPublic, live: tabLive, settings: tabSettings }[btab]();
   patch(el, html, force && !isEditing(el));
@@ -417,9 +454,16 @@ function tabMedia() {
       let cls = '';
       if (m.status === 'converting' || m.status === 'processing') { meta = 'Conversion' + (m.converter ? ` (${m.converter})` : '') + '…'; cls = 'busy'; }
       if (m.status === 'error') { meta = m.error; cls = 'err'; }
+      if (kind === 'video' && m.width) meta = `${m.width}×${m.height} · ${(m.codec || '').toUpperCase()}${m.duration ? ' · ' + fmtTime(m.duration * 1000) : ''}`;
+      if (m.optimize?.progress != null) { meta = `Optimisation… ${m.optimize.progress} %`; cls = 'busy'; }
+      if (m.optimize?.error) { meta = 'Optimisation échouée'; cls = 'err'; }
+      const optFull = kind === 'video' && !m.optimize?.progress && m.needsOptimize;
+      const optHd = kind === 'video' && !m.optimize?.progress && m.heavy && (m.height || 0) > 1100;
       const fake = { id: 'media:' + m.id, type: kind, mediaId: m.id, name: m.name };
       return `<div class="item" draggable="true" data-media="${m.id}" title="${esc(m.name)}${m.status === 'error' ? ' — ' + esc(m.error) : ''}"><div class="thumb">${m.status === 'ready' ? thumbHtml(fake) : `<span class="ico">${ICONS[kind] || '📄'}</span>`}</div>
         <div class="cname">${esc(m.name)}</div><div class="meta ${cls}">${esc(meta)}</div>
+        ${optFull || optHd ? `<div class="row wrap opt">${optFull ? `<button class="btn sm primary" data-act="media-optimize" data-id="${m.id}" title="Format ${esc((m.codec || '').toUpperCase())} : réencodage en H.264, lisible partout, même résolution">⚡ Optimiser</button>` : ''}
+          ${optHd ? `<button class="btn sm" data-act="media-optimize" data-id="${m.id}" data-h="1080" title="Version 1080p : beaucoup plus légère à lire (idéal si la machine peine en 4K)">⚡ 1080p</button>` : ''}</div>` : ''}
         <button class="btn sm del" data-act="media-remove" data-id="${m.id}" title="Supprimer">✕</button></div>`;
     }).join('') || '<p class="hint">Aucun média. Importez PowerPoint, Keynote, PDF, vidéos, images, sons.</p>'}</div>`;
 }
@@ -645,6 +689,13 @@ document.addEventListener('click', async (e) => {
     'guest-place': () => { const g = S.guests.find((x) => x.id === id); if (g) placeCue({ type: 'guest', guestId: g.id, name: g.name }); },
     'guest-copy': () => navigator.clipboard.writeText(guestLink()).then(() => toast('Lien invité copié')),
     'scene-edit': () => c && openSceneEditor({ getState: () => S, send, cueId: c.id, client }),
+    popout: () => {
+      const w = window.open(`/control/?panel=${btab}`, 'presenthor_' + btab, 'width=980,height=900');
+      if (!w) toast('Fenêtre bloquée par le navigateur : autorisez les fenêtres pop-up.');
+    },
+    'panel-fullscreen': () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
+    'crop-reset': () => c && send({ type: 'cue.update', id: c.id, patch: { crop: { t: 0, r: 0, b: 0, l: 0 } } }),
+    'media-optimize': () => { send({ type: 'media.optimize', id, height: Number(b.dataset.h) || undefined }); toast('Optimisation lancée en arrière-plan : le clip bascule tout seul sur la nouvelle version.'); },
     'reset-transform': () => setTarget(b.dataset.target, { transform: { x: 0, y: 0, scale: 1, rotate: 0 } }),
     'fx-remove': () => { const o = targetObj(b.dataset.target); setTarget(b.dataset.target, { effects: o.effects.filter((_, i) => i !== +b.dataset.i) }); },
     'layer-up': () => send({ type: 'comp.layer.move', id: selLayerId, dir: 1 }),
@@ -690,6 +741,14 @@ document.addEventListener('click', async (e) => {
 });
 
 document.addEventListener('dblclick', (e) => {
+  const rs = e.target.closest('[data-reset]');
+  if (rs && rs.dataset.def !== '') {
+    const v = Number(rs.dataset.def);
+    const row = rs.parentElement;
+    row.querySelector('input[type=range]').value = v;
+    row.querySelector('input.num').value = fmt2(v);
+    return sendBound(rs.dataset.reset, v);
+  }
   const ch = e.target.closest('.colhead');
   if (ch) {
     const i = +ch.dataset.col;
@@ -710,6 +769,29 @@ document.addEventListener('dblclick', (e) => {
   if (src) return placeCue(structuredClone(sourceTemplates()[+src.dataset.src][2]));
 });
 
+// Envoi d'une valeur de curseur : au rythme de l'affichage (≈ 60 / s), dernière valeur garantie.
+const pendingBound = new Map();
+let boundRaf = 0;
+function sendBound(bind, v) {
+  const [target, path] = bind.split(':');
+  const obj = targetObj(target);
+  if (obj && path.includes('.')) { const [a, b2] = path.split('.'); obj[a] = { ...(obj[a] || {}), [b2]: v }; } else if (obj) obj[path] = v;
+  pendingBound.set(bind, () => setTarget(target, setPath(obj, path, v)));
+  boundRaf ||= requestAnimationFrame(() => { boundRaf = 0; for (const fn of pendingBound.values()) fn(); pendingBound.clear(); });
+}
+// Molette sur un curseur : pas fin (Maj = x10).
+document.addEventListener('wheel', (e) => {
+  const el = e.target;
+  if (!el.matches?.('input[type=range]')) return;
+  e.preventDefault();
+  const step = Number(el.step) || 0.01;
+  el.value = Math.min(Number(el.max), Math.max(Number(el.min), Number(el.value) - Math.sign(e.deltaY) * step * (e.shiftKey ? 10 : 1)));
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}, { passive: false });
+// Maj pendant le glissé = réglage fin.
+document.addEventListener('keydown', (e) => { if (e.key === 'Shift' && dragRange) dragRange.step = Number(dragRange.dataset.step || dragRange.step) / 10; });
+document.addEventListener('keyup', (e) => { if (e.key === 'Shift' && dragRange) dragRange.step = dragRange.dataset.step || dragRange.step; });
+
 // Champs : curseurs (input), listes et cases (change)
 function readValue(el) {
   if (el.type === 'checkbox') return el.dataset.type === 'bool-true' ? el.checked : el.checked;
@@ -724,18 +806,14 @@ document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.lop) {
     const id = el.closest('[data-layer-head]').dataset.layerHead;
-    if (el.dataset.lop === 'opacity') throttled('op' + id, () => send({ type: 'comp.layer.update', id, patch: { opacity: Number(el.value) } }));
+    if (el.dataset.lop === 'opacity') { const l = layerById(id); if (l) l.opacity = Number(el.value); pendingBound.set('op' + id, () => send({ type: 'comp.layer.update', id, patch: { opacity: Number(el.value) } })); boundRaf ||= requestAnimationFrame(() => { boundRaf = 0; for (const fn of pendingBound.values()) fn(); pendingBound.clear(); }); }
     return;
   }
   if (el.dataset.bind && el.type === 'range') {
-    const [target, path] = el.dataset.bind.split(':');
     const v = Number(el.value);
-    const out = el.parentElement.querySelector('output');
-    if (out) out.textContent = fmt2(v) + (out.textContent.endsWith('°') ? '°' : out.textContent.endsWith('×') ? '×' : '');
-    const obj = targetObj(target);
-    throttled('b' + el.dataset.bind, () => setTarget(target, setPath(obj, path, v)));
-    if (obj && path.includes('.')) { const [a, b2] = path.split('.'); obj[a] = { ...(obj[a] || {}), [b2]: v }; } // garde la valeur locale pour les envois suivants
-    return;
+    const num = el.parentElement.querySelector('input.num');
+    if (num) num.value = fmt2(v);
+    return sendBound(el.dataset.bind, v);
   }
   if (el.dataset.fxVal) {
     const [target, i] = el.dataset.fxVal.split(':');
@@ -753,6 +831,12 @@ document.addEventListener('change', (e) => {
   if (el.dataset.lop === 'blend') { el.blur(); return send({ type: 'comp.layer.update', id: el.closest('[data-layer-head]').dataset.layerHead, patch: { blend: el.value } }); }
   if (el.dataset.lop === 'opacity') { el.blur(); return; }
   if (el.dataset.seek) { delete el.dataset.dragging; el.blur(); return send({ type: 'comp.pb.seek', layerId: el.dataset.seek, time: Number(el.value) }); }
+  if (el.dataset.bind && el.type === 'number') {
+    const v = Math.min(Number(el.max), Math.max(Number(el.min), Number(el.value) || 0));
+    const r = el.parentElement.querySelector('input[type=range]');
+    if (r) r.value = v;
+    return sendBound(el.dataset.bind, v);
+  }
   if (el.dataset.bind && el.type !== 'range') {
     const [target, path] = el.dataset.bind.split(':');
     return setTarget(target, setPath(targetObj(target), path, readValue(el)));
@@ -808,7 +892,7 @@ $('#prefs-btn').onclick = () => openPrefs({ getState: () => S, send, info, toast
 $('#show-name').addEventListener('change', (e) => send({ type: 'show.rename', name: e.target.value }));
 $('#blackout').onclick = () => send({ type: 'blackout.toggle' });
 $('#clear-all').onclick = () => send({ type: 'comp.clear' });
-$('#master').oninput = (e) => throttled('master', () => send({ type: 'comp.master', value: Number(e.target.value) }));
+$('#master').oninput = (e) => sendBound('comp:master', Number(e.target.value));
 $('#master').onchange = (e) => e.target.blur();
 $('#timer-toggle').onclick = () => send({ type: S.timer.running ? 'timer.pause' : 'timer.start' });
 $('#timer-reset').onclick = () => send({ type: 'timer.reset' });
@@ -968,10 +1052,12 @@ function attachGuestPreviews() {
     if (st && v.srcObject !== st) v.srcObject = st;
   }
 }
-async function applyReturn(kind, value) {
+async function applyReturn(kind, value, fromPanel = false) {
   const rs = retSettings();
   rs[kind] = value;
   try { localStorage.setItem('presenthor.return', JSON.stringify(rs)); } catch {}
+  // Une fenêtre détachée confie l'envoi du retour à la régie principale (un seul envoi par invité).
+  if (PANEL) { bc?.postMessage({ type: 'return', kind, value }); toast('Retour mis à jour'); return; }
   try {
     if (kind === 'audio') {
       const st = value ? await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: value }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } }) : null;
@@ -994,7 +1080,10 @@ async function listAudioInputs() {
 }
 listAudioInputs();
 // Rétablit le retour choisi lors de la dernière session.
-setTimeout(() => { const rs = retSettings(); if (rs.audio) applyReturn('audio', rs.audio); if (rs.video) applyReturn('video', rs.video); }, 1500);
+if (!PANEL) {
+  setTimeout(() => { const rs = retSettings(); if (rs.audio) applyReturn('audio', rs.audio); if (rs.video) applyReturn('video', rs.video); }, 1500);
+  if (bc) bc.onmessage = (e) => { if (e.data?.type === 'return') applyReturn(e.data.kind, e.data.value); };
+}
 
 // ------------------------------------------------------------------ capture de fenêtre
 async function pickWindow(cueId) {
@@ -1038,7 +1127,7 @@ setInterval(() => {
   for (const [layerId, pb] of Object.entries(S.live.comp.pb || {})) {
     const row = document.querySelector(`[data-tp="${layerId}"]`);
     if (!row) continue;
-    const vid = outMon.layers.get(layerId)?.stage.current?.video;
+    const vid = outMon?.layers.get(layerId)?.stage.current?.video;
     const dur = vid?.duration || 0;
     const cue = cueById(S.live.comp.active?.[layerId]);
     let tt = pb.playing ? ((now - pb.startedAt) / 1000) * (cue?.speed || 1) : pb.offset;

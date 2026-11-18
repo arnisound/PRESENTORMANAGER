@@ -346,7 +346,8 @@ class Layer {
       case 'audio': {
         const v = (this.video = document.createElement('video'));
         v.className = 'fit';
-        v.src = d.src;
+        // Écrans de contrôle : version allégée si elle existe (les fichiers 4K restent pour les sorties).
+        v.src = monitor && d.media?.proxy ? '/media/' + d.media.proxy : d.src;
         v.preload = 'auto';
         v.playsInline = true;
         v.muted = monitor || !this.stage.opts.audio;
@@ -367,8 +368,8 @@ class Layer {
         return;
       }
       case 'web': {
-        if (monitor) {
-          el.innerHTML = `<div class="placeholder"><b>Page web / visio</b><small>${esc(d.cue.url || 'aucune URL')}</small></div>`;
+        if (monitor && (d.cue.noPreview || !window.presenthor?.isDesktop)) {
+          el.innerHTML = `<div class="placeholder"><b>Page web</b><small>${esc(d.cue.url || 'aucune URL')}</small></div>`;
           return;
         }
         const url = normUrl(d.cue.url);
@@ -383,10 +384,19 @@ class Layer {
           wv.setAttribute('src', url);
           wv.className = 'web-view';
           el.append(wv);
+          // Diagnostic : si la page ne charge pas, on affiche la raison (réseau, certificat, refus…).
+          wv.addEventListener('did-fail-load', (e) => {
+            if (!e.isMainFrame || e.errorCode === -3) return;
+            const msg = document.createElement('div');
+            msg.className = 'web-error';
+            msg.innerHTML = `<b>La page ne s'est pas chargée</b><span>${esc(e.errorDescription || 'erreur')} (code ${e.errorCode})</span><small>${esc(e.validatedURL || url)}</small>`;
+            el.append(msg);
+          });
+          wv.addEventListener('did-start-loading', () => el.querySelector('.web-error')?.remove());
           await new Promise((r) => { wv.addEventListener('dom-ready', r, { once: true }); setTimeout(r, 8000); });
           try {
             wv.setZoomFactor(zoom);
-            wv.setAudioMuted(!this.stage.opts.audio);
+            wv.setAudioMuted(!!monitor || !this.stage.opts.audio);
           } catch {}
           return;
         }
@@ -538,8 +548,8 @@ class Layer {
     const st = this.stage.state, client = this.stage.opts.client;
     const live = st?.live?.program;
     const onAir = live && live.cueId === this.desc.cue.id && live.slide === this.desc.slide && !st.live.blackout;
-    const sa = this.stage.opts.slideAtFor?.(this.desc.cue.id);
-    const start = sa != null ? sa : onAir ? st.live.slideAt : this.builtAt;
+    // Départ à 0 à l'affichage de la diapo sur cet écran (fiable même après de longues pauses).
+    const start = this.slideShownAt ??= onAir || this.active ? (client ? client.now() : Date.now()) : this.builtAt;
     const now = client ? client.now() : Date.now();
     for (const m of this.slideMedia) {
       const dur = m.duration || Infinity;
@@ -547,7 +557,7 @@ class Layer {
       if (t < 0) continue;
       if (m.loop && isFinite(dur)) t %= dur;
       else if (t >= dur) { if (!m.paused) m.pause(); continue; }
-      if (Math.abs(m.currentTime - t) > 0.5) m.currentTime = t;
+      if (Math.abs(m.currentTime - t) > 2) m.currentTime = t;
       if (m.paused) m.play().catch(() => { m.muted = true; m.play().catch(() => {}); });
     }
   }
@@ -556,7 +566,7 @@ class Layer {
     this.desc = desc;
     if (['title', 'poll', 'qa', 'qr'].includes(desc.type)) this.renderCard(desc, state);
     if (desc.type === 'color') this.el.style.background = desc.cue.color || '#000';
-    if (this.webview) { try { this.webview.setZoomFactor(desc.cue.zoom || 1); this.webview.setAudioMuted(!this.stage.opts.audio); } catch {} }
+    if (this.webview) { try { this.webview.setZoomFactor(desc.cue.zoom || 1); this.webview.setAudioMuted(!!this.stage.opts.monitor || !this.stage.opts.audio); } catch {} }
     if (this.stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
@@ -605,8 +615,14 @@ class Layer {
     if (target >= dur && !v.loop) return;
     const drift = v.currentTime - target;
     if (pb.playing) {
-      if (Math.abs(drift) > 0.5) v.currentTime = target;
-      else v.playbackRate = speed * (Math.abs(drift) > 0.04 ? (drift > 0 ? 0.97 : 1.03) : 1);
+      // Recalage doux : un « saut » seulement si l'écart est grand (et pas plus d'une fois
+      // toutes les 3 s) ; sinon légère accélération / ralentissement. Les écrans de
+      // contrôle tolèrent plus d'écart pour ne pas charger la machine.
+      const mon = this.stage.opts.monitor;
+      const now = performance.now();
+      if (Math.abs(drift) > (mon ? 2.5 : 1) && (!this.lastSeek || now - this.lastSeek > 3000)) { v.currentTime = target; this.lastSeek = now; }
+      else if (!mon) v.playbackRate = speed * (Math.abs(drift) > 0.15 ? (drift > 0 ? 0.98 : 1.02) : 1);
+      else v.playbackRate = speed;
       if (v.paused) {
         v.play().catch((e) => {
           if (e.name === 'NotAllowedError' && !v.muted) { v.muted = true; v.play().catch(() => {}); this.stage.opts.onAutoplayBlocked?.(() => { v.muted = false; }); }
@@ -769,5 +785,14 @@ function applyClipStyle(el, cue) {
   el.style.transform = transformCss(cue.transform, fx.transform);
   el.style.filter = fx.filter;
   el.style.clipPath = MASK_CSS[cue.mask] || '';
+  // Rognage (bordures, bandes noires…) : la partie gardée remplit le cadre du clip.
+  const c = cue.crop || {};
+  const crop = c.t || c.r || c.b || c.l;
+  el.style.setProperty('--crop', crop ? `inset(${c.t || 0}% ${c.r || 0}% ${c.b || 0}% ${c.l || 0}%)` : 'none');
+  if (crop && el.querySelector('webview, iframe')) {
+    // Pages web : pas de « view box » possible, on agrandit et on découpe.
+    const sx = 100 / (100 - (c.l || 0) - (c.r || 0)), sy = 100 / (100 - (c.t || 0) - (c.b || 0));
+    el.style.setProperty('--web-crop', `translate(${-(c.l || 0) * sx}%, ${-(c.t || 0) * sy}%) scale(${sx}, ${sy})`);
+  } else el.style.removeProperty('--web-crop');
   if (cue.fit) el.dataset.fit = cue.fit; else delete el.dataset.fit;
 }

@@ -82,7 +82,8 @@
     "copyright": "© 2026 arnisoundtools.com"
   },
   "optionalDependencies": {
-    "@stagetimerio/grandiose": "^0.2.1"
+    "@stagetimerio/grandiose": "^0.2.1",
+    "ffmpeg-static": "^5.3.0"
   },
   "homepage": "https://arnisoundtools.com"
 }

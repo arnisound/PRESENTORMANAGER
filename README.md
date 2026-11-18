@@ -29,6 +29,10 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - fin de lecture : boucle, une fois, clip suivant, ou vider le calque ;
   - vitesse et volume ;
   - cadrage, position, effets et masque.
+- **Vidéos lourdes (4K, HEVC, ProRes…)** : à l'import, ffmpeg (fourni avec l'app) analyse la vidéo, calcule sa vignette et crée une version allégée pour les écrans de la régie. Les sorties gardent le fichier d'origine. Le bouton **⚡ Optimiser** réencode en H.264 (lisible partout, même résolution), et **⚡ 1080p** crée une version beaucoup plus légère. Le clip bascule tout seul sur la nouvelle version.
+- **Rogner** : chaque clip peut être rogné en haut, en bas, à gauche et à droite (bordures, bandes noires, barres de titre). La partie gardée remplit le cadre.
+- **Curseurs précis** : case de saisie exacte, molette (Maj = ×10), Maj pendant le glissé pour le réglage fin, double-clic sur le libellé = valeur par défaut.
+- **Panneaux détachables** (↗ dans la barre d'onglets) : Public et visio, Direct, Sorties… s'ouvrent dans une fenêtre séparée, à placer sur un autre écran ou en plein écran (⛶).
 - **Effets** (temps réel) : luminosité, contraste, saturation, teinte, flou, noir & blanc, sépia, négatif, miroirs. Ils se glissent sur un calque ou un clip.
 - **Télécommande de présentation** : elle fait avancer la présentation à l'écran. Après la dernière diapo (ou sans présentation), elle passe à la colonne suivante.
 - **Sans coupure** : chaque clip est préparé en arrière-plan avant d'être affiché, et la diapositive suivante est préchargée.

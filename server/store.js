@@ -532,6 +532,13 @@ export class Store {
         s.questions = [];
         break;
 
+      case 'media.optimize': {
+        const m = s.media.find((x) => x.id === a.id);
+        if (!m || m.kind !== 'video') return { error: 'vidéo introuvable' };
+        if (!this.mediaTasks?.optimize) return { error: 'optimisation indisponible' };
+        this.mediaTasks.optimize(m, { maxHeight: Math.max(360, Math.min(2160, +a.height || 2160)) });
+        break;
+      }
       case 'media.remove': {
         s.media = s.media.filter((m) => m.id !== a.id);
         for (const c of s.cues) if (c.mediaId === a.id) c.mediaId = null;
