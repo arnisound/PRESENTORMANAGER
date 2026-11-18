@@ -2,6 +2,7 @@
 import { Client, bindClicker, esc, fmtTime, timerValue, getPin } from '/shared/client.js';
 import { Stage, describe, stepFrom, pdfThumb, joinUrl } from '/shared/renderer.js';
 import { openSceneEditor } from '/control/scene-editor.js';
+import { openMappingEditor } from '/control/mapping-editor.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const desktop = window.presentor || null; // API exposée par l'app Mac/PC
@@ -253,6 +254,10 @@ function tabOutputs() {
       ${field('Nom', `<input data-out-field="name" value="${esc(o.name)}">`)}
       ${field('Contenu', `<select data-out-field="source">${sel(sources, o.source)}</select>`)}
       ${check('Sortie audio (son des vidéos)', 'data-out-field="audio" data-type="bool"', o.audio)}
+      <div class="row wrap"><button class="btn sm" data-act="out-mapping" data-id="${o.id}">Mapping…</button>
+        ${o.zones?.length ? `<span class="tag ${o.mapping ? 'pvw' : 'flag'}">${o.zones.length} zone${o.zones.length > 1 ? 's' : ''}${o.mapping ? '' : ' (désactivé)'}</span>` : ''}
+        ${check('Mire', 'data-out-field="testPattern" data-type="bool"', o.testPattern)}
+        ${o.resolution ? `<span class="hint">${o.resolution.w}×${o.resolution.h}</span>` : ''}</div>
       ${desktop ? `<div class="row"><select data-out-display="${o.id}">${sel([['', 'Fenêtre'], ...displays.map((d) => [d.id, d.label])], disp)}</select>
         <button class="btn sm primary" data-act="out-open" data-id="${o.id}">Ouvrir</button><button class="btn sm" data-act="out-close" data-id="${o.id}">Fermer</button></div>`
         : `<div class="row"><button class="btn sm primary" data-act="out-window" data-id="${o.id}">Ouvrir dans une fenêtre</button><button class="btn sm" data-act="copy" data-text="${esc(url)}">Copier le lien</button></div>`}
@@ -358,6 +363,7 @@ document.addEventListener('click', async (e) => {
       send({ type: 'output.update', id, patch: { displayId: v === '' ? null : Number(v) } });
       desktop.openOutput(id, v === '' ? null : Number(v));
     },
+    'out-mapping': () => openMappingEditor({ getState: () => S, send, outputId: id }),
     'out-close': () => desktop.closeOutput(id),
     'displays-identify': () => desktop.identifyDisplays(),
     copy: () => navigator.clipboard.writeText(b.dataset.text).then(() => toast('Lien copié')),

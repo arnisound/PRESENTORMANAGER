@@ -145,7 +145,7 @@ export class Store {
   dispatch(a, role = 'control') {
     const s = this.state;
     const audienceActions = ['vote', 'qa.ask'];
-    const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle'];
+    const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle', 'output.report'];
     if (role === 'audience' && !audienceActions.includes(a.type)) return { error: 'forbidden' };
     if (role === 'output' && !outputActions.includes(a.type)) return { error: 'forbidden' };
 
@@ -290,7 +290,16 @@ export class Store {
         if (!o) return { error: 'sortie introuvable' };
         const { id, ...patch } = a.patch || {};
         if (patch.source && !SOURCES.includes(patch.source) && !patch.source.startsWith('cue:')) return { error: 'source invalide' };
+        if (patch.zones) patch.zones = sanitizeZones(patch.zones);
         Object.assign(o, patch);
+        break;
+      }
+      case 'output.report': {
+        // Résolution réelle de l'écran, utile à l'éditeur de mapping.
+        const o = s.outputs.find((x) => x.id === a.id);
+        if (!o || !(a.w > 0 && a.h > 0)) return { ok: true };
+        if (o.resolution?.w === a.w && o.resolution?.h === a.h) return { ok: true };
+        o.resolution = { w: Math.round(a.w), h: Math.round(a.h) };
         break;
       }
       case 'output.remove':
@@ -438,6 +447,23 @@ function sanitizeLayers(layers, cues, selfId) {
     visible: l.visible !== false,
     main: !!l.main,
     slide: Math.max(1, Math.round(+l.slide || 1)),
+  }));
+}
+
+const ZONE_SOURCES = ['', 'program', 'clean', 'preview'];
+function sanitizeZones(zones) {
+  const num = (v, d, min, max) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
+  const def = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  return (Array.isArray(zones) ? zones : []).slice(0, 16).map((z, i) => ({
+    id: String(z.id || uid('zn_')),
+    name: String(z.name || `Zone ${i + 1}`).slice(0, 40),
+    source: ZONE_SOURCES.includes(z.source) || String(z.source || '').startsWith('cue:') ? z.source || '' : '',
+    corners: def.map((d, k) => [num(z.corners?.[k]?.[0], d[0], -2, 3), num(z.corners?.[k]?.[1], d[1], -2, 3)]),
+    crop: { x: num(z.crop?.x, 0, 0, 0.99), y: num(z.crop?.y, 0, 0, 0.99), w: num(z.crop?.w, 1, 0.01, 1), h: num(z.crop?.h, 1, 0.01, 1) },
+    blend: { l: num(z.blend?.l, 0, 0, 0.5), r: num(z.blend?.r, 0, 0, 0.5), t: num(z.blend?.t, 0, 0, 0.5), b: num(z.blend?.b, 0, 0, 0.5) },
+    gamma: num(z.gamma, 2.2, 1, 3),
+    opacity: num(z.opacity, 1, 0, 1),
+    visible: z.visible !== false,
   }));
 }
 

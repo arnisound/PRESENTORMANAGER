@@ -42,3 +42,13 @@ body.idle { cursor: none; }
 .mv-list { grid-column: 1 / -1; display: flex; gap: .6vw; overflow: hidden; font-size: 1.8vh; }
 .mv-list span { padding: .6vh .8vw; border-radius: 6px; background: #111827; white-space: nowrap; }
 .mv-list span.pgm { background: #7f1d1d; } .mv-list span.pvw { background: #14532d; }
+
+/* Mapping */
+.mapping { position: absolute; inset: 0; overflow: hidden; background: #000; }
+.zone { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; }
+.zone-crop { position: absolute; inset: 0; overflow: hidden; }
+.zone-inner { position: absolute; }
+.zone-test { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+.zone-test.full { position: fixed; z-index: 40; }
+.zone-test svg { width: 100%; height: 100%; display: block; }
+.preview-mode body, html.preview-mode { cursor: default; }

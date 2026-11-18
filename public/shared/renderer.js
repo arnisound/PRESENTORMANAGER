@@ -390,8 +390,8 @@ class Layer {
       });
       // Recadrage : le contenu est agrandi puis décalé, la boîte du calque masque le reste.
       Object.assign(ch.inner.style, {
-        width: 100 / cw + '%', height: 100 / chh + '%',
-        left: (-(c.l || 0) / cw) * 100 + '%', top: (-(c.t || 0) / chh) * 100 + '%',
+        width: '100%', height: '100%', left: 0, top: 0, transformOrigin: '0 0',
+        transform: cw < 1 || chh < 1 ? `scale(${1 / cw}, ${1 / chh}) translate(${-(c.l || 0) * 100}%, ${-(c.t || 0) * 100}%)` : '',
       });
       ch.inner.dataset.fit = l.fit || 'contain';
       const slide = main && main.id === l.id ? d.slide || 1 : l.slide || 1;

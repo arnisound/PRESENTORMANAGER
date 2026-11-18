@@ -2,9 +2,13 @@
 // présentateur, écrans périphériques, multiview régie…).
 import { Client, bindClicker, esc, fmtTime, timerValue } from '/shared/client.js';
 import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
+import { quadMatrix, blendMask, testPatternSvg, DEFAULT_CORNERS } from '/shared/mapping.js';
 
 const params = new URLSearchParams(location.search);
 const outputId = params.get('id');
+// Aperçu intégré à l'éditeur de mapping : muet, sans iframe, non compté comme écran.
+const previewMode = params.get('preview') === '1';
+if (previewMode) document.documentElement.classList.add('preview-mode');
 const app = document.getElementById('app');
 const statusEl = document.getElementById('status');
 const unlockEl = document.getElementById('audio-unlock');
@@ -13,7 +17,7 @@ let view = null; // { source, render(state) }
 
 const client = new Client({
   role: 'output',
-  output: outputId,
+  output: previewMode ? null : outputId,
   onState: (state) => render(state),
   onStatus: (s) => {
     // On garde la dernière image à l'écran en cas de coupure réseau.
@@ -21,7 +25,7 @@ const client = new Client({
     statusEl.textContent = 'Connexion perdue — reconnexion…';
   },
 });
-bindClicker(client);
+if (!previewMode) bindClicker(client);
 
 function render(state) {
   document.documentElement.style.setProperty('--accent', state.settings.accent);
@@ -29,33 +33,113 @@ function render(state) {
   const out = state.outputs.find((o) => o.id === outputId);
   if (!out) { app.innerHTML = '<div class="picker"><h1>Sortie supprimée</h1><p><a href="/output/">Choisir une autre sortie</a></p></div>'; view = null; return; }
   document.title = out.name + ' — Presentor';
-  const source = out.source;
+  const mapped = !!(out.mapping && out.zones?.length);
+  const source = mapped ? 'mapping' : out.source;
   if (!view || view.source !== source || view.audio !== !!out.audio) {
     app.innerHTML = '';
-    view = createView(source, out);
+    view = mapped ? mappingView(baseOpts(out)) : createView(source, out);
   }
-  view.render(state);
+  view.render(state, out);
+  reportResolution();
 }
 
+function baseOpts(out) {
+  return { client, audio: !!out.audio && !previewMode, monitor: previewMode, onAutoplayBlocked };
+}
+
+// Contenu d'une source "écran" (programme, programme sans habillage, preview, élément fixe).
+function makeSourceStage(el, source, opts) {
+  if (source.startsWith('cue:')) {
+    const stage = new Stage(el, { ...opts, free: true });
+    const cueId = source.slice(4);
+    return (s) => stage.update(s, describe(s, { cueId, slide: 1 }));
+  }
+  const stage = new Stage(el, { ...opts, reportEnded: !previewMode && (source === 'program' || source === 'clean') });
+  return (s) => {
+    const pos = source === 'preview' ? s.live.preview : s.live.program;
+    const flags = source === 'preview' ? {} : { blackout: s.live.blackout, logo: s.live.logo };
+    stage.update(s, describe(s, pos, flags), source === 'program' ? s.live.overlay : null, source === 'program' && !s.live.blackout ? s.live.overlayScenes : null);
+    if (source !== 'preview') stage.preload(describe(s, stepFrom(s, s.live.program, 1)));
+  };
+}
+
+// Mapping : chaque zone est une copie de la source, recadrée puis déformée
+// sur 4 coins, avec fondu de bord éventuel.
+function mappingView(opts) {
+  const root = document.createElement('div');
+  root.className = 'mapping';
+  app.append(root);
+  const zones = new Map();
+  let last = null;
+  const render = (s, out) => {
+    last = [s, out];
+    const W = window.innerWidth, H = window.innerHeight;
+    const list = out.zones || [];
+    for (const [id, z] of zones) if (!list.some((x) => x.id === id)) { z.stage?.destroy?.(); z.el.remove(); zones.delete(id); }
+    list.forEach((zd, i) => {
+      const src = zd.source || (['presenter', 'multiview'].includes(out.source) ? 'program' : out.source);
+      let z = zones.get(zd.id);
+      if (!z || z.src !== src) {
+        z?.el.remove();
+        const el = document.createElement('div');
+        el.className = 'zone';
+        el.innerHTML = '<div class="zone-crop"><div class="zone-inner"></div></div><div class="zone-test"></div>';
+        root.append(el);
+        z = { el, src, inner: el.querySelector('.zone-inner'), test: el.querySelector('.zone-test') };
+        z.update = makeSourceStage(z.inner, src, opts);
+        zones.set(zd.id, z);
+      }
+      const c = zd.crop || { x: 0, y: 0, w: 1, h: 1 };
+      const corners = (zd.corners || DEFAULT_CORNERS).map(([x, y]) => [x * W, y * H]);
+      Object.assign(z.el.style, {
+        width: W + 'px', height: H + 'px', transform: quadMatrix(W, H, corners), zIndex: i + 1,
+        opacity: zd.opacity ?? 1, display: zd.visible === false ? 'none' : '',
+      });
+      const mask = blendMask(zd.blend, zd.gamma || 2.2);
+      z.el.style.maskImage = z.el.style.webkitMaskImage = mask || 'none';
+      z.el.style.maskComposite = 'intersect';
+      z.el.style.webkitMaskComposite = 'source-in';
+      // La source est rendue à la taille de la sortie, puis la partie choisie est agrandie.
+      Object.assign(z.inner.style, {
+        width: W + 'px', height: H + 'px', left: 0, top: 0, transformOrigin: '0 0',
+        transform: `scale(${1 / c.w}, ${1 / c.h}) translate(${-c.x * W}px, ${-c.y * H}px)`,
+      });
+      const testHtml = out.testPattern ? testPatternSvg(zd.name, ['#22d3ee', '#f472b6', '#a3e635', '#facc15'][i % 4]) : '';
+      if (z.test.dataset.html !== testHtml) { z.test.dataset.html = testHtml; z.test.innerHTML = testHtml; }
+      z.update(s);
+    });
+  };
+  window.addEventListener('resize', () => last && render(...last));
+  return { source: 'mapping', audio: !!opts.audio, render };
+}
+
+let reported = '';
+function reportResolution() {
+  if (previewMode || !outputId) return;
+  const key = window.innerWidth + 'x' + window.innerHeight;
+  if (key === reported || !client.connected) return;
+  reported = key;
+  client.send({ type: 'output.report', id: outputId, w: window.innerWidth, h: window.innerHeight });
+}
+window.addEventListener('resize', () => { if (client.state) render(client.state); });
+
 function createView(source, out) {
-  const opts = { client, audio: !!out.audio, onAutoplayBlocked };
+  const opts = baseOpts(out);
   if (source === 'presenter') return presenterView(opts);
   if (source === 'multiview') return multiView(opts);
   const el = document.createElement('div');
   app.append(el);
-  if (source.startsWith('cue:')) {
-    const stage = new Stage(el, { ...opts, free: true });
-    const cueId = source.slice(4);
-    return { source, audio: !!out.audio, render: (s) => stage.update(s, describe(s, { cueId, slide: 1 })) };
-  }
-  const stage = new Stage(el, { ...opts, reportEnded: source === 'program' || source === 'clean' });
+  const update = makeSourceStage(el, source, opts);
+  // Mire plein écran (calage projecteur) même sans zones de mapping.
+  const test = document.createElement('div');
+  test.className = 'zone-test full';
+  app.append(test);
   return {
     source, audio: !!out.audio,
-    render: (s) => {
-      const pos = source === 'preview' ? s.live.preview : s.live.program;
-      const flags = source === 'preview' ? {} : { blackout: s.live.blackout, logo: s.live.logo };
-      stage.update(s, describe(s, pos, flags), source === 'program' ? s.live.overlay : null, source === 'program' && !s.live.blackout ? s.live.overlayScenes : null);
-      if (source !== 'preview') stage.preload(describe(s, stepFrom(s, s.live.program, 1)));
+    render: (s, o) => {
+      update(s);
+      const html = o?.testPattern ? testPatternSvg(o.name) : '';
+      if (test.dataset.html !== html) { test.dataset.html = html; test.innerHTML = html; }
     },
   };
 }
