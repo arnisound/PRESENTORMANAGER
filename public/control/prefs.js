@@ -61,13 +61,14 @@ export function openPrefs({ getState, send, info, toast }) {
           <span class="hint">Plusieurs sorties peuvent avoir le son, chacune sur sa carte : par ex. la salle sur la console, un retour scène sur une autre carte. Le son d'un écran est celui de ses calques.</span></div>`
         + row('Pré-écoute dans la régie', chk('regieListen'), 'Le moniteur de sortie de la régie devient audible, par ex. sur un casque.')
         + row('Carte son de la pré-écoute', sinkSel('data-sink="regie"', s.regieAudioDevice))
-        + row('Volume général', `<span class="row"><input type="range" min="0" max="1" step="0.01" data-pref="masterVolume" value="${s.masterVolume ?? 1}" style="width:160px"><output>${Math.round((s.masterVolume ?? 1) * 100)} %</output></span>`)
+        + row('Son général (dB)', `<span class="row"><input type="range" min="-60" max="12" step="0.5" data-pref="masterGainDb" value="${s.masterGainDb ?? 0}" style="width:160px"><output>${(s.masterGainDb ?? 0) > 0 ? '+' : ''}${s.masterGainDb ?? 0} dB</output></span>`)
         + `<div class="row"><button class="btn sm" data-sinks-ask>Afficher le nom des cartes son</button><span class="hint">${sinks.length} sortie(s) audio détectée(s)</span></div>`;
     } else if (section === 'play') {
       h = row('Transition des nouveaux calques', sel('defaultLayerTransitionMs', [[0, 'Cut'], [250, 'Fondu 0,25 s'], [500, 'Fondu 0,5 s'], [1000, 'Fondu 1 s'], [2000, 'Fondu 2 s']]), 'Chaque calque garde ensuite son propre réglage.')
+        + row('Type de transition des nouveaux calques', sel('defaultLayerTransition', [['fade', 'Fondu enchaîné'], ['dip', 'Passage par le noir'], ['slide-left', 'Glissement'], ['zoom', 'Zoom'], ['wipe', 'Volet']]), 'Réglable ensuite calque par calque (onglet Calque).')
         + row('Fin des vidéos importées', sel('defaultLoopMode', [['loop', 'Boucle'], ['once', 'Une fois (reste sur la fin)'], ['next', 'Puis clip suivant du calque'], ['clear', 'Une fois puis vider le calque']]))
         + row('Lancer les vidéos dès le déclenchement', chk('defaultAutoplay'))
-        + row('Volume général', `<span class="row"><input type="range" min="0" max="1" step="0.01" data-pref="masterVolume" value="${s.masterVolume ?? 1}" style="width:160px"><output>${Math.round((s.masterVolume ?? 1) * 100)} %</output></span>`, 'Multiplie le volume de tous les calques sur les sorties audio.');
+        + row('Son général (dB)', `<span class="row"><input type="range" min="-60" max="12" step="0.5" data-pref="masterGainDb" value="${s.masterGainDb ?? 0}" style="width:160px"><output>${(s.masterGainDb ?? 0) > 0 ? '+' : ''}${s.masterGainDb ?? 0} dB</output></span>`, 'Niveau de tous les calques sur les sorties audio : 0 dB = niveau d\'origine, −60 = coupé, jusqu\'à +12 dB. Aussi réglable en haut de la régie.');
     } else if (section === 'regie') {
       h = row('Taille des vignettes de la grille', sel('cellSize', [[96, 'Petites'], [132, 'Moyennes'], [168, 'Grandes'], [210, 'Très grandes']]))
         + row('Demander confirmation avant suppression', chk('confirmDelete'))
@@ -169,7 +170,8 @@ export function openPrefs({ getState, send, info, toast }) {
   root.addEventListener('input', (e) => {
     const el = e.target;
     if (el.type === 'range' && el.dataset.pref) {
-      el.nextElementSibling.textContent = Math.round(el.value * 100) + ' %';
+      const v = Number(el.value);
+      el.nextElementSibling.textContent = el.dataset.pref === 'masterGainDb' ? (v <= -60 ? '−∞' : (v > 0 ? '+' : '') + v + ' dB') : Math.round(v * 100) + ' %';
       save(el.dataset.pref, Number(el.value));
     }
   });

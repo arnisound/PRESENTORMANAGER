@@ -24,16 +24,16 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - touches 1 à 9 pour les colonnes ;
   - glisser-déposer pour déplacer (Alt pour copier) ;
   - clic droit pour les options.
-- **Calques** (X vider, B masquer, S solo) : opacité, mode de fusion (normal, ajout, écran, produit, incrustation…), volume, transition cut ou fondu, position / échelle / rotation, effets, masques (ovale, cercle, coins arrondis, losange).
+- **Calques** (X vider, B masquer, S solo) : opacité, mode de fusion (normal, ajout, écran, produit, incrustation…), son en dB, transition propre au calque (fondu enchaîné, passage par le noir ou une couleur, glissement, zoom, volet, cut ; durée, courbe, fondu croisé du son), position / échelle / rotation, effets, masques (ovale, cercle, coins arrondis, losange).
 - **Clips** : présentations PowerPoint / Keynote / PDF, vidéos, images, sons, pages web / visio, caméras et cartes d'acquisition, sources NDI, textes, couleurs, QR codes, sondages, questions du public, scènes. Chaque clip a ses propres réglages :
   - fin de lecture : boucle, une fois, clip suivant, ou vider le calque ;
-  - vitesse et volume ;
+  - vitesse et niveau sonore en dB (0 dB par défaut, jusqu'à +12 dB de gain pour les fichiers trop faibles) ;
   - cadrage, position, effets et masque.
 - **Lecture vidéo fluide** : chaque sortie se cale une seule fois (lancement, pause, déplacement), puis lit librement, comme un lecteur classique. Il n'y a aucune variation de vitesse, donc pas de son haché. La boucle est sans couture, et la plage de lecture est gérée image par image. Les écrans de contrôle lisent une version légère, une image fixe, ou rien (au choix).
 - **Audio** :
   - carte son par défaut et carte son par sortie (plusieurs sorties sur des cartes différentes) ;
   - pré-écoute au casque dans la régie ;
-  - volume général.
+  - son général (master en dB) et coupure de tout le son, directement en haut de la régie.
 - **Vidéos lourdes (4K, HEVC, ProRes…)** : à l'import, ffmpeg (fourni avec l'app) analyse la vidéo, calcule sa vignette et crée une version allégée pour les écrans de la régie. Les sorties gardent le fichier d'origine. Le bouton **⚡ Optimiser** réencode en H.264 (lisible partout, même résolution), et **⚡ 1080p** crée une version beaucoup plus légère. Le clip bascule tout seul sur la nouvelle version.
 - **Timeline des vidéos et des sons** (onglet *Clip*) :
   - point de départ et de fin, à glisser, à saisir, ou à marquer à la position actuelle ;
@@ -69,7 +69,12 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - le multiview (sortie + un moniteur par calque) ;
   - un clip fixe.
 
-  Chaque sortie peut aussi utiliser le mapping (déformation 4 coins, fondu de bord, mire) et être publiée en NDI.
+  Chaque sortie peut aussi utiliser le mapping et être publiée en NDI. Le mapping propose :
+  - plusieurs zones, chacune avec sa source (composition, sans habillage, AUX, un calque seul, un clip fixe) ;
+  - déformation 4 coins, avec un **cadenas** : tirer un coin met toute la zone à l'échelle en gardant son format ;
+  - **grille de déformation** (de 3 × 3 à 9 × 9 points) pour tordre l'image sur une surface courbe ou un décor ;
+  - **masques** dessinés point par point (cacher une partie, ou ne garder que l'intérieur), avec bord adouci ;
+  - fondu de bord pour raccorder plusieurs projecteurs, mire de calage. Une forme impossible (coins croisés) est refusée : l'image ne disparaît jamais.
 - **Plein écran des sorties** (app Mac / PC) : **Échap** ou double-clic dans la sortie pour revenir en fenêtre, **Ctrl+Alt+F** (⌘+Alt+F) depuis n'importe où, ou bouton dans l'onglet *Sorties*.
 - **Public** : sondages en direct (QR code, résultats animés), nuage de mots, questions modérées.
 - **Direct** : message au présentateur, bandeau nom / fonction, écran noir.

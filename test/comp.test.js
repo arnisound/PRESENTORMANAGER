@@ -131,3 +131,18 @@ test('télécommande : un appui reçu deux fois (temps réel + secours) n\'est a
   assert.equal(s.dispatch({ type: 'next', nonce: 'abc' }).duplicate, true);
   assert.equal(s.state.live.comp.slides[deck], 2);
 });
+
+test('son en dB (0 par défaut, +12 max) et transition par calque', () => {
+  const { s, fond } = fresh();
+  s.dispatch({ type: 'comp.layer.update', id: fond.id, patch: { gainDb: 30, transition: { type: 'dip', curve: 'bizarre', color: '#ff0000', audio: false } } });
+  const l = s.state.comp.layers[0];
+  assert.equal(l.gainDb, 12);
+  assert.deepEqual(l.transition, { type: 'dip', curve: 'ease', color: '#ff0000', audio: false });
+  s.dispatch({ type: 'comp.layer.update', id: fond.id, patch: { transition: { type: 'pirouette' } } });
+  assert.equal(s.state.comp.layers[0].transition.type, 'fade');
+  s.dispatch({ type: 'settings.update', patch: { masterGainDb: -200, masterMute: 1 } });
+  assert.equal(s.state.settings.masterGainDb, -60);
+  assert.equal(s.state.settings.masterMute, true);
+  s.dispatch({ type: 'comp.layer.add' });
+  assert.equal(s.state.comp.layers.at(-1).gainDb, 0);
+});

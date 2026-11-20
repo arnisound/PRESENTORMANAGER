@@ -23,14 +23,27 @@ function newLayer(name, n, settings = {}) {
   return {
     id: uid('lay_'), name, opacity: 1, blend: 'normal', bypass: false, solo: false, volume: 1,
     mainOut: true, auxOutputs: [], // routage : composition principale et/ou sorties précises
-    transitionMs: settings.defaultLayerTransitionMs || 0, transform: { x: 0, y: 0, scale: 1, rotate: 0 }, effects: [], mask: 'none',
+    transitionMs: settings.defaultLayerTransitionMs || 0, gainDb: 0,
+    transition: { type: TRANSITIONS.includes(settings.defaultLayerTransition) ? settings.defaultLayerTransition : 'fade', curve: 'ease', color: '#000000', audio: true },
+    transform: { x: 0, y: 0, scale: 1, rotate: 0 }, effects: [], mask: 'none',
     clips: Array(n).fill(null),
   };
 }
 
 const num = (v, d, min, max) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
 
-export function sanitizeTransform(t = {}) {
+export const TRANSITIONS = ['fade', 'cut', 'dip', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom', 'wipe'];
+const CURVES = ['ease', 'linear', 'ease-in', 'ease-out', 'ease-in-out'];
+function sanitizeTransition(t = {}) {
+  return {
+    type: TRANSITIONS.includes(t.type) ? t.type : 'fade',
+    curve: CURVES.includes(t.curve) ? t.curve : 'ease',
+    color: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '#000000',
+    audio: t.audio !== false,
+  };
+}
+
+function sanitizeTransform(t = {}) {
   return { x: num(t.x, 0, -2, 2), y: num(t.y, 0, -2, 2), scale: num(t.scale, 1, 0.05, 8), rotate: num(t.rotate, 0, -360, 360) };
 }
 export function sanitizeEffects(list) {
@@ -79,6 +92,8 @@ export function compDispatch(store, a) {
       if (p.name != null) l.name = String(p.name).slice(0, 40);
       if (p.opacity != null) l.opacity = num(p.opacity, 1, 0, 1);
       if (p.volume != null) l.volume = num(p.volume, 1, 0, 1);
+      if (p.gainDb != null) l.gainDb = num(p.gainDb, 0, -60, 12);
+      if (p.transition) l.transition = sanitizeTransition({ ...l.transition, ...p.transition });
       if (p.blend && BLENDS.includes(p.blend)) l.blend = p.blend;
       if (p.mask && MASKS.includes(p.mask)) l.mask = p.mask;
       if (p.bypass != null) l.bypass = !!p.bypass;

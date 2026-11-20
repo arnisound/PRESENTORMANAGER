@@ -233,11 +233,53 @@ export class Stage {
     // Fondu entre éléments du conducteur, cut entre diapositives (comme PowerPoint).
     const sameCue = old && old.desc.cue && layer.desc.cue && old.desc.cue.id === layer.desc.cue.id;
     const ms = sameCue ? 0 : this.opts.transitionMs ? this.opts.transitionMs() : s.transition === 'cut' ? 0 : s.transitionMs ?? 400;
-    layer.el.style.transition = ms ? `opacity ${ms}ms ease` : 'none';
-    layer.el.getBoundingClientRect();
+    const tr = this.opts.transitionSpec?.() || {};
+    const type = ms ? tr.type || 'fade' : 'cut';
+    layer.el.style.transition = 'none';
     layer.el.style.opacity = 1;
     layer.activate();
-    if (old) setTimeout(() => old.destroy(), ms + 50);
+    if (type !== 'cut') this.animate(layer, old, type, ms, tr);
+    if (old) setTimeout(() => old.destroy(), (type === 'cut' ? 0 : ms) + 50);
+  }
+
+  // Transition entre deux clips : image (fondu, noir, glissé, zoom, volet) et son (fondu croisé).
+  animate(layer, old, type, ms, tr) {
+    const easing = tr.curve || 'ease';
+    const o = { duration: ms, easing, fill: 'none' };
+    const el = layer.el, oe = old?.el;
+    const slide = { 'slide-left': ['100%', 0, '-100%', 0], 'slide-right': ['-100%', 0, '100%', 0], 'slide-up': [0, '100%', 0, '-100%'], 'slide-down': [0, '-100%', 0, '100%'] }[type];
+    try {
+      if (type === 'fade') el.animate([{ opacity: 0 }, { opacity: 1 }], o);
+      else if (type === 'dip') {
+        // Passage par une couleur (noir par défaut) : l'ancien s'efface, le nouveau apparaît.
+        const dip = document.createElement('div');
+        Object.assign(dip.style, { position: 'absolute', inset: 0, background: tr.color || '#000', zIndex: 3, pointerEvents: 'none', opacity: 0 });
+        this.layers.append(dip);
+        dip.animate([{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }], { duration: ms, easing: 'linear' });
+        el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], { duration: ms, easing: 'linear' });
+        setTimeout(() => dip.remove(), ms + 30);
+      } else if (slide) {
+        el.animate([{ transform: `translate(${slide[0]}, ${slide[1]})` }, { transform: 'translate(0, 0)' }], o);
+        oe?.animate([{ transform: 'translate(0, 0)' }, { transform: `translate(${slide[2]}, ${slide[3]})` }], { ...o, fill: 'forwards' });
+      } else if (type === 'zoom') {
+        el.animate([{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'scale(1)' }], o);
+        oe?.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(1.25)' }], { ...o, fill: 'forwards' });
+      } else if (type === 'wipe') {
+        el.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], o);
+      }
+    } catch {}
+    // Son : le nouveau monte pendant que l'ancien descend (sauf si désactivé).
+    if (tr.audio === false) return;
+    const t0 = performance.now();
+    const ease = (t) => (easing === 'linear' ? t : t * t * (3 - 2 * t));
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / ms);
+      layer.setXfade(ease(t));
+      old?.setXfade(1 - ease(t));
+      if (t < 1 && !layer.destroyed) requestAnimationFrame(step);
+    };
+    layer.setXfade(0);
+    requestAnimationFrame(step);
   }
 
   // Préchauffe un contenu à venir (diapo suivante) pour un affichage instantané.
@@ -361,7 +403,7 @@ class Layer {
         v.playsInline = true;
         v.muted = this.silent();
         v.loop = this.loops(d.cue);
-        v.volume = this.volume(d.cue);
+        setGain(v, this.volume(d.cue));
         if (d.type === 'audio') { el.innerHTML = `<div class="audio-badge">♪ ${esc(d.cue.name)}</div>`; v.style.display = 'none'; }
         el.append(v);
         v.addEventListener('ended', () => {
@@ -465,7 +507,7 @@ class Layer {
         const v = document.createElement('video');
         v.autoplay = true; v.playsInline = true; v.className = 'fit' + (d.cue.fill ? ' cover' : '');
         v.muted = this.silent();
-        v.volume = this.volume(d.cue);
+        v.volume = Math.min(1, this.volume(d.cue));
         el.append(v);
         v.srcObject = await guestStream(this.stage.opts.client, () => this.stage.state, d.cue.guestId);
         await v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
@@ -585,7 +627,7 @@ class Layer {
     if (this.fade !== f) {
       this.fade = f;
       v.style.opacity = f;
-      v.volume = this.volume(cue) * f;
+      setGain(v, this.volume(cue) * f * (this.xfade ?? 1));
     }
     requestAnimationFrame(() => this.fadeLoop());
   }
@@ -623,10 +665,17 @@ class Layer {
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
       this.video.loop = this.loops(desc.cue);
-      this.video.volume = this.volume(desc.cue) * (this.fade ?? 1);
+      setGain(this.video, this.volume(desc.cue) * (this.fade ?? 1) * (this.xfade ?? 1));
       this.syncMedia();
       if (!this.syncTimer) this.syncTimer = setInterval(() => this.syncMedia(), 250);
     }
+  }
+
+  // Niveau de la transition en cours (0…1) appliqué au son du clip.
+  setXfade(x) {
+    this.xfade = x;
+    if (this.video) setGain(this.video, this.volume(this.desc.cue) * (this.fade ?? 1) * x);
+    for (const m of this.slideMedia || []) if (!m.muted) m.volume = Math.max(0, Math.min(1, x));
   }
 
   // Son coupé ? (sortie sans son, ou écran de contrôle sans pré-écoute)
@@ -639,7 +688,7 @@ class Layer {
     const silent = this.silent();
     if (this.video && this.video.muted !== silent) this.video.muted = silent;
     const sink = this.stage.opts.sink?.();
-    if (sink && !silent) resolveSink(sink).then((id) => { for (const m of els) if (m.setSinkId && m.sinkId !== id && id != null) m.setSinkId(id).catch(() => {}); });
+    if (sink && !silent) resolveSink(sink).then((id) => { if (id != null) for (const m of els) setSink(m, id); });
   }
 
   // Dans la composition, les clips bouclent par défaut (comme en VJ) ; ailleurs, réglage "boucle".
@@ -649,7 +698,8 @@ class Layer {
     return (cue.loopMode || 'loop') === 'loop' && !(cue.inPoint > 0 || cue.outPoint > 0);
   }
   wantsLoop(cue) { return this.stage.opts.compLayer ? (cue.loopMode || 'loop') === 'loop' : !!cue.loop; }
-  volume(cue) { return Math.max(0, Math.min(1, (cue.volume ?? 1) * (this.stage.opts.volumeFor?.() ?? 1))); }
+  // Gain linéaire du clip (dB, 0 par défaut, jusqu'à +12) × calque × master.
+  volume(cue) { return Math.max(0, Math.min(4, clipGain(cue) * (this.stage.opts.volumeFor?.() ?? 1))); }
 
   // Lecture calée sur l'horloge du serveur : toutes les sorties restent synchronisées.
   syncMedia() {
@@ -1044,6 +1094,40 @@ export async function audioOutputs(refresh = false) {
   }
   return sinkList;
 }
+// Gain audio : jusqu'à 1 le volume de l'élément suffit ; au-delà (+12 dB max) on passe par
+// un petit graphe Web Audio propre à l'élément (gain réel, sans saturation du lecteur).
+export const clipGain = (o) => (o?.gainDb != null ? dbToGain(+o.gainDb) : o?.volume ?? 1);
+// Son général : niveau en dB (0 par défaut) et coupure ; ancien réglage linéaire repris.
+export const masterGain = (st = {}) => (st.masterMute ? 0 : st.masterGainDb != null ? dbToGain(+st.masterGainDb) : st.masterVolume ?? 1);
+export const dbToGain = (db) => (db <= -60 ? 0 : Math.pow(10, db / 20));
+export function setGain(el, g) {
+  if (!el) return;
+  g = Math.max(0, Math.min(4, Number.isFinite(g) ? g : 1));
+  if (!el._gain && g <= 1) { if (el.volume !== g) el.volume = g; return; }
+  if (!el._gain) {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AC({ latencyHint: 'playback' });
+      const src = el.srcObject ? ctx.createMediaStreamSource(el.srcObject) : ctx.createMediaElementSource(el);
+      const gain = ctx.createGain();
+      src.connect(gain).connect(ctx.destination);
+      el._ctx = ctx; el._gain = gain;
+      if (el.srcObject) el.volume = 0; // flux en direct : le son passe par le graphe
+      const resume = () => { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); };
+      resume(); el.addEventListener('play', resume);
+      if (el._sink) ctx.setSinkId?.(el._sink).catch(() => {});
+    } catch { el.volume = Math.min(1, g); return; }
+  }
+  if (!el.srcObject && el.volume !== 1) el.volume = 1;
+  if (Math.abs(el._gain.gain.value - g) > 1e-4) el._gain.gain.value = g;
+}
+// Carte son d'un élément (avec ou sans graphe de gain).
+function setSink(el, id) {
+  el._sink = id;
+  if (el._ctx?.setSinkId) { if (el._ctx.sinkId !== id) el._ctx.setSinkId(id).catch(() => {}); return; }
+  if (el.setSinkId && el.sinkId !== id) el.setSinkId(id).catch(() => {});
+}
+
 async function resolveSink(sink) {
   if (!sink || (!sink.id && !sink.label)) return '';
   const list = await audioOutputs();

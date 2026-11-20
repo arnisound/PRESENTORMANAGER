@@ -22,6 +22,7 @@
     <button class="btn sm" data-act="deck-next" title="Diapo suivante (→ / PageDown / télécommande)">▶</button>
   </div>
   <label class="master" title="Opacité générale de la composition">Master <input type="range" id="master" min="0" max="1" step="0.01"></label>
+  <span class="master sound" title="Son général de toutes les sorties (double-clic : 0 dB)"><button class="btn sm" id="mute" title="Couper / rétablir tout le son">🔊</button><input type="range" id="master-db" min="-60" max="12" step="0.5"><output id="master-db-val">0 dB</output></span>
   <button class="btn" id="clear-all" title="Vider tous les calques">Tout vider</button>
   <button class="btn danger" id="blackout" title="Écran noir (B)">NOIR</button>
   <div class="timer-box">

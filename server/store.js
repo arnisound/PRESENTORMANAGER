@@ -30,9 +30,12 @@ function defaultState() {
       accent: '#c48626',
       // Lecture
       defaultLayerTransitionMs: 0,
+      defaultLayerTransition: 'fade',
       defaultLoopMode: 'loop',
       defaultAutoplay: true,
-      masterVolume: 1,
+      masterVolume: 1, // ancien réglage linéaire (repris si masterGainDb absent)
+      masterGainDb: 0, // son général en dB (−60 = coupé … +12)
+      masterMute: false,
       // Vidéo et performances
       videoSync: 'smooth', // 'smooth' (lecture libre, recommandé) | 'strict' (écrans recalés de près)
       monitorVideo: 'proxy', // écrans de contrôle : 'proxy' (vidéo légère) | 'still' (image fixe) | 'off'
@@ -279,6 +282,7 @@ export class Store {
         const { id, type, ...patch } = a.patch || {};
         if (patch.layers) patch.layers = sanitizeLayers(patch.layers, s.cues, cue.id);
         if (typeof patch.url === 'string') patch.url = normalizeUrl(patch.url);
+        if (patch.gainDb != null) patch.gainDb = Math.max(-60, Math.min(12, +patch.gainDb || 0));
         Object.assign(cue, patch);
         break;
       }
@@ -454,6 +458,8 @@ export class Store {
       // réglages
       case 'settings.update': {
         const { guestToken, apiToken, ...p } = a.patch || {};
+        if (p.masterGainDb != null) p.masterGainDb = Math.max(-60, Math.min(12, +p.masterGainDb || 0));
+        if (p.masterMute != null) p.masterMute = !!p.masterMute;
         Object.assign(s.settings, p);
         break;
       }
@@ -610,8 +616,28 @@ function sanitizeLayers(layers, cues, selfId) {
   }));
 }
 
-const ZONE_SOURCES = ['', 'program', 'clean', 'preview'];
+const ZONE_SOURCES = ['', 'program', 'clean', 'preview', 'aux'];
 const zoneSourceOk = (v) => ZONE_SOURCES.includes(v) || /^(cue|layer):/.test(String(v || ''));
+// Grille de déformation : décalage de chaque point par rapport à la grille régulière.
+function sanitizeMesh(m) {
+  if (!m || !m.cols || !m.rows) return null;
+  const cols = Math.max(1, Math.min(8, m.cols | 0)), rows = Math.max(1, Math.min(8, m.rows | 0));
+  const n = (cols + 1) * (rows + 1);
+  const pts = Array.from({ length: n }, (_, i) => {
+    const p = m.points?.[i] || [0, 0];
+    return [Math.max(-1, Math.min(1, +p[0] || 0)), Math.max(-1, Math.min(1, +p[1] || 0))];
+  });
+  return { cols, rows, points: pts };
+}
+// Masques : polygones dans le repère de la zone (0 à 1), à masquer ou à garder.
+function sanitizeMasks(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 16).map((m) => ({
+    id: String(m.id || uid('mk_')),
+    points: (Array.isArray(m.points) ? m.points : []).slice(0, 64).map((p) => [Math.max(-1, Math.min(2, +p[0] || 0)), Math.max(-1, Math.min(2, +p[1] || 0))]),
+    invert: !!m.invert,
+    feather: Math.max(0, Math.min(20, +m.feather || 0)),
+  })).filter((m) => m.points.length >= 3);
+}
 function sanitizeZones(zones) {
   const num = (v, d, min, max) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
   const def = [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -623,6 +649,9 @@ function sanitizeZones(zones) {
     crop: { x: num(z.crop?.x, 0, 0, 0.99), y: num(z.crop?.y, 0, 0, 0.99), w: num(z.crop?.w, 1, 0.01, 1), h: num(z.crop?.h, 1, 0.01, 1) },
     blend: { l: num(z.blend?.l, 0, 0, 0.5), r: num(z.blend?.r, 0, 0, 0.5), t: num(z.blend?.t, 0, 0, 0.5), b: num(z.blend?.b, 0, 0, 0.5) },
     gamma: num(z.gamma, 2.2, 1, 3),
+    mesh: sanitizeMesh(z.mesh),
+    masks: sanitizeMasks(z.masks),
+    lock: !!z.lock,
     opacity: num(z.opacity, 1, 0, 1),
     visible: z.visible !== false,
   }));

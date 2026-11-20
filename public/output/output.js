@@ -2,7 +2,7 @@
 // présentateur, écrans périphériques, multiview régie…).
 import { Client, bindClicker, esc, fmtTime, timerValue, timerVisible } from '/shared/client.js';
 import { Stage, describe, notesFor, stepFrom } from '/shared/renderer.js';
-import { quadMatrix, blendMask, testPatternSvg, DEFAULT_CORNERS } from '/shared/mapping.js';
+import { quadMatrix, quadOk, blendMask, masksImages, meshActive, meshMap, testPatternSvg, DEFAULT_CORNERS } from '/shared/mapping.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
 
 const params = new URLSearchParams(location.search);
@@ -82,6 +82,30 @@ function makeSourceStage(el, source, opts) {
   };
 }
 
+// Filtre SVG partagé par la page : une entrée par zone déformée.
+let svgDefs = null;
+function applyMesh(z, mesh, W, H) {
+  if (!svgDefs) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', 0); svg.setAttribute('height', 0);
+    svg.style.position = 'absolute';
+    svgDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    svg.append(svgDefs);
+    document.body.append(svg);
+  }
+  z.fid ||= 'warp' + Math.random().toString(36).slice(2, 8);
+  const { url, scale } = meshMap(mesh, W, H);
+  z.filter?.remove();
+  const f = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+  f.id = z.fid;
+  f.innerHTML = `<feImage href="${url}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" result="map"/>
+    <feDisplacementMap in="SourceGraphic" in2="map" scale="${scale.toFixed(2)}" xChannelSelector="R" yChannelSelector="G"/>`;
+  for (const [k, v] of Object.entries({ x: 0, y: 0, width: W, height: H, filterUnits: 'userSpaceOnUse', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' })) f.setAttribute(k, v);
+  svgDefs.append(f);
+  z.filter = f;
+  return `url(#${z.fid})`;
+}
+
 // Mapping : chaque zone est une copie de la source, recadrée puis déformée
 // sur 4 coins, avec fondu de bord éventuel.
 function mappingView(opts) {
@@ -94,30 +118,51 @@ function mappingView(opts) {
     last = [s, out];
     const W = window.innerWidth, H = window.innerHeight;
     const list = out.zones || [];
-    for (const [id, z] of zones) if (!list.some((x) => x.id === id)) { z.stage?.destroy?.(); z.el.remove(); zones.delete(id); }
+    for (const [id, z] of zones) if (!list.some((x) => x.id === id)) { z.stage?.destroy?.(); z.el.remove(); z.filter?.remove(); zones.delete(id); }
     list.forEach((zd, i) => {
       const src = zd.source || (['presenter', 'multiview', 'preview'].includes(out.source) ? 'program' : out.source);
       let z = zones.get(zd.id);
       if (!z || z.src !== src) {
-        z?.el.remove();
+        z?.el.remove(); z?.filter?.remove();
         const el = document.createElement('div');
         el.className = 'zone';
-        el.innerHTML = '<div class="zone-crop"><div class="zone-inner"></div></div><div class="zone-test"></div>';
+        el.innerHTML = '<div class="zone-warp"><div class="zone-crop"><div class="zone-inner"></div></div><div class="zone-test"></div></div>';
         root.append(el);
-        z = { el, src, inner: el.querySelector('.zone-inner'), test: el.querySelector('.zone-test') };
+        z = { el, src, warp: el.querySelector('.zone-warp'), inner: el.querySelector('.zone-inner'), test: el.querySelector('.zone-test') };
         z.update = makeSourceStage(z.inner, src, opts);
         zones.set(zd.id, z);
       }
       const c = zd.crop || { x: 0, y: 0, w: 1, h: 1 };
-      const corners = (zd.corners || DEFAULT_CORNERS).map(([x, y]) => [x * W, y * H]);
+      // Coins impossibles (croisés, alignés) : on garde la dernière forme valide, l'image ne disparaît jamais.
+      const norm = zd.corners || DEFAULT_CORNERS;
+      const key = W + 'x' + H + JSON.stringify(norm);
+      if (z.mKey !== key) {
+        const m = quadOk(norm) ? quadMatrix(W, H, norm.map(([x, y]) => [x * W, y * H])) : null;
+        if (m) { z.matrix = m; z.mKey = key; }
+        else if (!z.matrix) z.matrix = 'none';
+      }
       Object.assign(z.el.style, {
-        width: W + 'px', height: H + 'px', transform: quadMatrix(W, H, corners), zIndex: i + 1,
+        width: W + 'px', height: H + 'px', transform: z.matrix, zIndex: i + 1,
         opacity: zd.opacity ?? 1, display: zd.visible === false ? 'none' : '',
       });
-      const mask = blendMask(zd.blend, zd.gamma || 2.2);
-      z.el.style.maskImage = z.el.style.webkitMaskImage = mask || 'none';
-      z.el.style.maskComposite = 'intersect';
-      z.el.style.webkitMaskComposite = 'source-in';
+      // Masques : fondu de bord + polygones dessinés, tous appliqués ensemble.
+      const maskKey = JSON.stringify([zd.blend, zd.gamma, zd.masks]);
+      if (z.maskKey !== maskKey) {
+        z.maskKey = maskKey;
+        const layers = [blendMask(zd.blend, zd.gamma || 2.2), ...masksImages(zd.masks || [])].filter(Boolean);
+        const st = z.el.style;
+        st.maskImage = st.webkitMaskImage = layers.length ? layers.join(', ') : 'none';
+        st.maskSize = st.webkitMaskSize = '100% 100%';
+        st.maskRepeat = st.webkitMaskRepeat = 'no-repeat';
+        st.maskComposite = 'intersect';
+        st.webkitMaskComposite = 'source-in';
+      }
+      // Grille de déformation : filtre SVG de déplacement (calculé seulement quand la grille change).
+      const meshKey = meshActive(zd.mesh) ? W + 'x' + H + JSON.stringify(zd.mesh) : '';
+      if (z.meshKey !== meshKey) {
+        z.meshKey = meshKey;
+        z.warp.style.filter = meshKey ? applyMesh(z, zd.mesh, W, H) : '';
+      }
       // La source est rendue à la taille de la sortie, puis la partie choisie est agrandie.
       Object.assign(z.inner.style, {
         width: W + 'px', height: H + 'px', left: 0, top: 0, transformOrigin: '0 0',

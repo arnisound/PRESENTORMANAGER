@@ -1,7 +1,7 @@
 // Rendu de la composition : les calques actifs sont empilés (calque 1 en bas)
 // et mélangés en temps réel — opacité, mode de fusion, transformation, effets,
 // masque. Chaque calque garde le rendu "sans coupure" (préparation puis fondu).
-import { Stage, describe, effectsCss, transformCss, MASK_CSS } from './renderer.js';
+import { Stage, describe, effectsCss, transformCss, MASK_CSS, clipGain, masterGain } from './renderer.js';
 
 export class CompositionView {
   /**
@@ -58,7 +58,8 @@ export class CompositionView {
             clipStyle: true,
             compLayer: id,
             transitionMs: () => cur().transitionMs || 0,
-            volumeFor: () => (cur().volume ?? 1) * (this.state.settings?.masterVolume ?? 1),
+            transitionSpec: () => cur().transition,
+            volumeFor: () => clipGain(cur()) * masterGain(this.state.settings),
             playbackFor: () => lc().pb?.[id] || null,
             slideAtFor: (cueId) => lc().slideAt?.[cueId],
           }),

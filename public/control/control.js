@@ -189,6 +189,13 @@ function renderAll() {
   $('#clients').textContent = `${nOut} écran${nOut > 1 ? 's' : ''} · ${c.audience} participant${c.audience > 1 ? 's' : ''}`;
   $('#blackout').classList.toggle('on', !!S.live.blackout);
   if (document.activeElement !== $('#master')) $('#master').value = S.comp.master ?? 1;
+  {
+    const st = S.settings, db = st.masterGainDb ?? (st.masterVolume != null && st.masterVolume < 1 ? Math.max(-60, 20 * Math.log10(Math.max(st.masterVolume, 0.001))) : 0);
+    if (document.activeElement !== $('#master-db')) $('#master-db').value = db;
+    $('#master-db-val').textContent = fmtDb(+$('#master-db').value);
+    $('#mute').textContent = st.masterMute ? '🔇' : '🔊';
+    $('#mute').classList.toggle('danger', !!st.masterMute);
+  }
   const d = deckInfo(S);
   $('#deck').hidden = !d;
   if (d) $('#deck-label').textContent = `${d.cue.name} · ${d.slide}/${d.pages}`;
@@ -259,13 +266,31 @@ function renderTransport() {
 // ------------------------------------------------------------------ propriétés
 // Curseur : glisser (Maj = plus fin), molette pour ajuster, case pour saisir la valeur exacte,
 // double-clic sur le libellé = valeur par défaut.
-const DEFAULTS = { opacity: 1, volume: 1, master: 1, speed: 1, 'transform.x': 0, 'transform.y': 0, 'transform.scale': 1, 'transform.rotate': 0,
+const DEFAULTS = { opacity: 1, volume: 1, gainDb: 0, master: 1, speed: 1, 'transform.x': 0, 'transform.y': 0, 'transform.scale': 1, 'transform.rotate': 0,
   'crop.t': 0, 'crop.b': 0, 'crop.l': 0, 'crop.r': 0, 'crop.feather': 0, 'key.similarity': 40, 'key.smoothness': 8, 'key.spill': 10 };
+// Niveau sonore en dB (0 = niveau d'origine, +12 = gain) ; anciens volumes linéaires convertis.
+const toDb = (o) => (o?.gainDb != null ? +o.gainDb : o?.volume != null && o.volume < 1 ? Math.max(-60, Math.round(20 * Math.log10(Math.max(o.volume, 0.001)) * 2) / 2) : 0);
 function sliderRow(label, bind, value, min, max, step, unit = '') {
   const key = bind.split(':')[1];
   return `<div class="slider"><span data-reset="${bind}" data-def="${DEFAULTS[key] ?? ''}" title="Double-clic : valeur par défaut">${label}</span>
     <input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-bind="${bind}" data-step="${step}">
     <input type="number" class="num" min="${min}" max="${max}" step="${step}" value="${fmt2(value)}" data-bind="${bind}">${unit ? `<i>${unit}</i>` : '<i></i>'}</div>`;
+}
+// Transition entre les clips d'un calque : type, durée, courbe, couleur du passage, son.
+const TRANS = [['fade', 'Fondu enchaîné'], ['dip', 'Passage par le noir / une couleur'], ['slide-left', 'Glissement vers la gauche'], ['slide-right', 'Glissement vers la droite'],
+  ['slide-up', 'Glissement vers le haut'], ['slide-down', 'Glissement vers le bas'], ['zoom', 'Zoom'], ['wipe', 'Volet'], ['cut', 'Cut (instantané)']];
+const CURVES = [['ease', 'Douce'], ['linear', 'Linéaire'], ['ease-in', 'Accélère'], ['ease-out', 'Ralentit'], ['ease-in-out', 'Douce (lente aux bords)']];
+function transitionBlock(l) {
+  const t = l.transition || {};
+  const type = (l.transitionMs || 0) ? t.type || 'fade' : 'cut';
+  return `<div class="box"><b>Transition entre les clips</b>
+    <div class="grid2">${field('Type', `<select data-trans="type">${sel_(TRANS, type)}</select>`)}
+      ${field('Durée', `<span class="row"><input type="number" class="num" min="0" max="10" step="0.05" data-trans="sec" value="${fmt2((l.transitionMs || 0) / 1000)}"${type === 'cut' ? ' disabled' : ''}><i>s</i></span>`)}</div>
+    <div class="row wrap">${[0.25, 0.5, 1, 2, 4].map((v) => `<button class="btn sm${(l.transitionMs || 0) === v * 1000 ? ' on' : ''}" data-trans-sec="${v}">${String(v).replace('.', ',')} s</button>`).join('')}</div>
+    <div class="grid2">${field('Courbe', `<select data-trans="curve">${sel_(CURVES, t.curve || 'ease')}</select>`)}
+      ${type === 'dip' ? field('Couleur du passage', `<input type="color" data-trans="color" value="${esc(t.color || '#000000')}">`) : '<span></span>'}</div>
+    ${check('Le son suit la transition (fondu croisé audio)', 'data-trans="audio"', t.audio !== false)}
+    <span class="hint">S'applique à chaque changement de clip sur ce calque. Pour tous les nouveaux calques : Préférences → Lecture.</span></div>`;
 }
 function transformBlock(target, t = {}) {
   return `<div class="box"><b>Position / taille</b>
@@ -304,9 +329,9 @@ function renderProps(force = false) {
       const idx = S.comp.layers.indexOf(l) + 1;
       h = `${field(`Calque ${idx} — nom`, `<input data-layer-name value="${esc(l.name)}">`)}
         ${sliderRow('Opacité', 'layer:opacity', l.opacity, 0, 1, 0.01)}
-        ${sliderRow('Volume', 'layer:volume', l.volume ?? 1, 0, 1, 0.01)}
-        <div class="grid2">${field('Mode de fusion', `<select data-bind="layer:blend">${sel_(BLENDS, l.blend)}</select>`)}
-          ${field('Transition entre clips', `<select data-bind="layer:transitionMs" data-num>${sel_([[0, 'Cut'], [250, 'Fondu 0,25 s'], [500, 'Fondu 0,5 s'], [1000, 'Fondu 1 s'], [2000, 'Fondu 2 s'], [4000, 'Fondu 4 s']], l.transitionMs || 0)}</select>`)}</div>
+        ${sliderRow('Son', 'layer:gainDb', toDb(l), -60, 12, 0.5, 'dB')}
+        ${field('Mode de fusion', `<select data-bind="layer:blend">${sel_(BLENDS, l.blend)}</select>`)}
+        ${transitionBlock(l)}
         <div class="box"><b>Destination (routage)</b>
           ${check('Composition principale', 'data-route="main"', l.mainOut !== false)}
           ${S.outputs.map((o) => check(`Écran « ${esc(o.name)} »`, `data-route="${o.id}"`, (l.auxOutputs || []).includes(o.id))).join('')}
@@ -374,7 +399,7 @@ function clipProps() {
       ${field('Fin du clip', `<select ${f('loopMode')}>${sel_(LOOP_MODES, c.loopMode || 'loop')}</select>`)}
       ${check('Démarrer automatiquement au déclenchement', `${f('autoplay')} data-type="bool"`, c.autoplay !== false)}
       ${sliderRow('Vitesse', 'clip:speed', c.speed ?? 1, 0.1, 4, 0.05, '×')}
-      ${sliderRow('Volume', 'clip:volume', c.volume ?? 1, 0, 1, 0.01)}</div>`;
+      ${sliderRow('Son', 'clip:gainDb', toDb(c), -60, 12, 0.5, 'dB')}</div>`;
   }
   if (c.type === 'web') {
     h += field('URL (Zoom, Teams, Meet, sondage, site…)', `<input type="url" ${f('url')} value="${esc(c.url || '')}" placeholder="https://…">`);
@@ -418,7 +443,7 @@ function clipProps() {
     const g = S.guests?.find((x) => x.id === c.guestId);
     h += `<div class="box"><b>${g ? '🟢 ' + esc(g.name) + ' est connecté' : '⚪ Invité hors ligne'}</b>
       ${field('Invité', `<select ${f('guestId')}>${sel_([...(S.guests || []).map((x) => [x.id, x.name]), ...(g ? [] : [[c.guestId, (c.name || 'Invité') + ' (hors ligne)']])], c.guestId)}</select>`)}
-      ${sliderRow('Volume', 'clip:volume', c.volume ?? 1, 0, 1, 0.01)}
+      ${sliderRow('Son', 'clip:gainDb', toDb(c), -60, 12, 0.5, 'dB')}
       ${check('Remplir le cadre (recadrer)', `${f('fill')} data-type="bool"`, c.fill)}
       <span class="hint">Le son de l'invité sort sur les sorties où « Son » est coché. Le retour vers l'invité se règle dans l'onglet Public.</span></div>`;
   }
@@ -762,6 +787,11 @@ document.addEventListener('click', async (e) => {
   const sl = t.closest('.slides-strip [data-slide]');
   if (sl) { const c = selCue(); return c && send({ type: 'comp.slide', cueId: c.id, slide: +sl.dataset.slide }); }
 
+  const ts = t.closest('[data-trans-sec]');
+  if (ts && selLayerId) {
+    const l = layerById(selLayerId);
+    return send({ type: 'comp.layer.update', id: selLayerId, patch: { transitionMs: +ts.dataset.transSec * 1000, ...(l?.transition?.type ? {} : { transition: { type: 'fade' } }) } });
+  }
   const b = t.closest('[data-act]');
   if (!b) return;
   const id = b.dataset.id;
@@ -966,6 +996,17 @@ document.addEventListener('change', (e) => {
     const o = targetObj(target);
     return setTarget(target, { effects: o.effects.map((x, k) => (k === +i ? { ...x, on: el.checked } : x)) });
   }
+  if (el.dataset.trans) {
+    const l = layerById(selLayerId);
+    if (!l) return;
+    const k = el.dataset.trans;
+    if (k === 'sec') return send({ type: 'comp.layer.update', id: l.id, patch: { transitionMs: Math.round(Math.max(0, Math.min(10, Number(el.value) || 0)) * 1000) } });
+    if (k === 'type') {
+      if (el.value === 'cut') return send({ type: 'comp.layer.update', id: l.id, patch: { transitionMs: 0 } });
+      return send({ type: 'comp.layer.update', id: l.id, patch: { transition: { type: el.value }, ...(l.transitionMs ? {} : { transitionMs: 500 }) } });
+    }
+    return send({ type: 'comp.layer.update', id: l.id, patch: { transition: { [k]: el.type === 'checkbox' ? el.checked : el.value } } });
+  }
   if (el.dataset.compClicker !== undefined) return send({ type: 'comp.settings', clickerColumns: el.checked });
   if (el.dataset.route) {
     const l = layerById(selLayerId);
@@ -1014,6 +1055,17 @@ $('#blackout').onclick = () => send({ type: 'blackout.toggle' });
 $('#clear-all').onclick = () => send({ type: 'comp.clear' });
 $('#master').oninput = (e) => sendBound('comp:master', Number(e.target.value));
 $('#master').onchange = (e) => e.target.blur();
+const fmtDb = (v) => (v <= -60 ? '−∞' : (v > 0 ? '+' : '') + (Math.round(v * 10) / 10) + ' dB');
+let masterDbT = 0;
+$('#master-db').oninput = (e) => {
+  const v = Number(e.target.value);
+  $('#master-db-val').textContent = fmtDb(v);
+  S.settings.masterGainDb = v;
+  masterDbT ||= requestAnimationFrame(() => { masterDbT = 0; send({ type: 'settings.update', patch: { masterGainDb: S.settings.masterGainDb } }); });
+};
+$('#master-db').onchange = (e) => e.target.blur();
+$('#master-db').ondblclick = () => { $('#master-db').value = 0; send({ type: 'settings.update', patch: { masterGainDb: 0 } }); };
+$('#mute').onclick = () => send({ type: 'settings.update', patch: { masterMute: !S.settings.masterMute } });
 $('#timer-toggle').onclick = () => send({ type: S.timer.running ? 'timer.pause' : 'timer.start' });
 $('#timer-reset').onclick = () => send({ type: 'timer.reset' });
 // Réglage rapide du chrono (clic sur l'affichage).
