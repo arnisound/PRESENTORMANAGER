@@ -14,6 +14,7 @@ import { Store, uid, pollResults } from './store.js';
 import { processMedia, kindOf, officeConverters, queueVideo, pptxNotes, pptxMedia } from './media.js';
 import { prepareVideo, optimizeVideo, ffmpeg, probeFull, makeProxy } from './video.js';
 import { startNdiDiscovery } from './ndi.js';
+import { PtzManager } from './ptz.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require_ = (p) => path.join(ROOT, 'node_modules', p);
@@ -29,6 +30,8 @@ export function lanAddresses() {
 export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = path.join(ROOT, 'data'), pin = process.env.PRESENTHOR_PIN || process.env.PRESENTOR_PIN || '' } = {}) {
   const store = new Store(dataDir);
   const stopNdi = startNdiDiscovery(store);
+  store.ptz = new PtzManager();
+  store.state.ptzNdi = PtzManager.ndiAvailable();
   const mediaDirPath = path.join(dataDir, 'media');
   store.mediaTasks = { optimize: (m, opts) => optimizeVideo(m, mediaDirPath, () => store.emit(), opts) };
   // Shows existants : prépare en arrière-plan les vidéos importées avant cette version.
@@ -325,6 +328,6 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
     port: actualPort,
     url: `http://localhost:${actualPort}`,
     store,
-    close: () => new Promise((r) => { stopNdi(); store.save(); wss.close(); server.close(r); }),
+    close: () => new Promise((r) => { stopNdi(); store.ptz.destroy(); store.save(); wss.close(); server.close(r); }),
   };
 }

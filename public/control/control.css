@@ -301,3 +301,32 @@ body.panel-mode .qr { width: 160px; height: 160px; }
 .me-modes button { background: var(--panel2); color: inherit; border: 0; padding: 5px 12px; cursor: pointer; font-weight: 600; }
 .me-modes button + button { border-left: 1px solid var(--line); }
 .me-modes button.on { background: var(--accent); color: #111; }
+
+/* Caméras PTZ */
+.ptz { display: flex; flex-direction: column; gap: 8px; user-select: none; }
+.ptz-main { display: flex; gap: 14px; align-items: center; }
+.ptz-joy { --s: 150px; width: var(--s); height: var(--s); border-radius: 50%; position: relative; flex: none; touch-action: none; cursor: grab;
+  background: radial-gradient(circle, #26262c 0 30%, #1a1a1f 31% 100%); border: 2px solid var(--line); box-shadow: inset 0 0 18px rgba(0,0,0,.6); }
+.ptz.big .ptz-joy { --s: min(260px, 60vw); }
+.ptz-joy.on { border-color: var(--accent); cursor: grabbing; }
+.ptz-knob { position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; margin: -17% 0 0 -17%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 35% 30%, #e6b45c, var(--accent) 60%, #7a4f12); box-shadow: 0 3px 10px rgba(0,0,0,.6); }
+.ptz-joy:not(.on) .ptz-knob { transition: transform .15s ease-out; }
+.ptz-arrow { position: absolute; font-size: 11px; color: var(--muted); pointer-events: none; }
+.ptz-arrow.u { top: 6px; left: 50%; transform: translateX(-50%); } .ptz-arrow.d { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.ptz-arrow.l { left: 8px; top: 50%; transform: translateY(-50%); } .ptz-arrow.r { right: 8px; top: 50%; transform: translateY(-50%); }
+.ptz-zoom { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ptz-zoom input[type=range] { writing-mode: vertical-lr; direction: rtl; height: 96px; width: 26px; }
+.ptz.big .ptz-zoom input[type=range] { height: 170px; }
+.ptz-zoom .btn, .ptz [data-ptz-hold] { touch-action: none; }
+.ptz [data-ptz-hold].on { background: var(--accent); color: #111; }
+.ptz-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ptz-row input[type=range] { flex: 1; min-width: 80px; }
+.ptz-presets-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ptz-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ptz-pre { display: flex; flex-direction: column; align-items: center; padding: 6px 4px; font-weight: 800; font-size: 15px; min-height: 44px; }
+.ptz-pre small { font-size: 10px; font-weight: 500; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptz-pre.flash { background: var(--live); color: #111; }
+.ptz:has([data-ptz-store]:checked) .ptz-pre { outline: 2px dashed var(--pgm); outline-offset: -2px; }
+.ptz-cams { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.ptz-cams .btn.live { border-color: var(--pgm); }

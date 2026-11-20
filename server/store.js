@@ -257,6 +257,13 @@ export class Store {
       this.nonces.set(String(a.nonce).slice(0, 40), now);
     }
     if (a.type?.startsWith('comp.')) return compDispatch(this, a);
+    // Caméra PTZ : commande directe, rien n'est enregistré (sauf les réglages du clip).
+    if (a.type === 'ptz') {
+      const cue = this.cue(a.cueId);
+      if (!cue) return { error: 'clip introuvable' };
+      if (!this.ptz) return { error: 'pilotage PTZ indisponible' };
+      try { return this.ptz.command(cue, a); } catch (e) { return { error: e.message }; }
+    }
 
     switch (a.type) {
       // conducteur
@@ -283,6 +290,7 @@ export class Store {
         if (patch.layers) patch.layers = sanitizeLayers(patch.layers, s.cues, cue.id);
         if (typeof patch.url === 'string') patch.url = normalizeUrl(patch.url);
         if (patch.gainDb != null) patch.gainDb = Math.max(-60, Math.min(12, +patch.gainDb || 0));
+        if (patch.ptz) patch.ptz = sanitizePtz({ ...cue.ptz, ...patch.ptz });
         if (patch.speed != null) {
           // Changement de vitesse en cours de lecture : on garde la position du clip
           // (temps de lecture recalé), la vidéo accélère ou ralentit sans sauter.
@@ -651,6 +659,19 @@ function sanitizeMasks(list) {
     feather: Math.max(0, Math.min(20, +m.feather || 0)),
   })).filter((m) => m.points.length >= 3);
 }
+function sanitizePtz(p = {}) {
+  const host = String(p.host || '').trim().replace(/^[a-z]+:\/\//i, '').replace(/[/:].*$/, '').slice(0, 64);
+  return {
+    enabled: p.enabled !== false,
+    via: ['ndi', 'visca'].includes(p.via) ? p.via : undefined,
+    host, port: Math.max(0, Math.min(65535, parseInt(p.port, 10) || 0)) || '',
+    protocol: ['sony', 'udp', 'tcp'].includes(p.protocol) ? p.protocol : 'sony',
+    speed: Math.max(0.05, Math.min(1, +p.speed || 0.5)),
+    invertPan: !!p.invertPan, invertTilt: !!p.invertTilt,
+    presets: (Array.isArray(p.presets) ? p.presets : []).slice(0, 16).map((x) => String(x || '').slice(0, 24)),
+  };
+}
+
 function sanitizeZones(zones) {
   const num = (v, d, min, max) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
   const def = [[0, 0], [1, 0], [1, 1], [0, 1]];

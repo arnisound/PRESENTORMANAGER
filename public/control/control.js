@@ -5,6 +5,7 @@ import { Stage, describe, pdfThumb, joinUrl } from '/shared/renderer.js';
 import { CompositionView, deckInfo } from '/shared/composition.js';
 import { openSceneEditor } from '/control/scene-editor.js';
 import { openMappingEditor } from '/control/mapping-editor.js';
+import { bindPtz, ptzSettingsHtml, ptzPadHtml, ptzCapable, isPtzCue } from '/control/ptz-pad.js';
 import { openPrefs } from '/control/prefs.js';
 import { guestStream, setReturnTracks } from '/shared/rtc.js';
 
@@ -30,7 +31,7 @@ const LOOP_MODES = [['loop', 'Boucle'], ['once', 'Une fois (reste sur la fin)'],
 
 // Fenêtre détachée (« ?panel=public » ou « ?panel=live ») : un seul panneau, plein écran.
 const PANEL = new URLSearchParams(location.search).get('panel');
-const PANEL_NAMES = { public: 'Public et visio', live: 'Direct', outputs: 'Sorties', media: 'Médias', sources: 'Sources', fx: 'Effets', settings: 'Infos' };
+const PANEL_NAMES = { ptz: 'Caméras PTZ', public: 'Public et visio', live: 'Direct', outputs: 'Sorties', media: 'Médias', sources: 'Sources', fx: 'Effets', settings: 'Infos' };
 if (PANEL) { document.body.classList.add('panel-mode'); document.title = (PANEL_NAMES[PANEL] || PANEL) + ' — PresenThor'; }
 // Coordination entre la régie et ses fenêtres détachées (retour visio).
 const bc = 'BroadcastChannel' in window ? new BroadcastChannel('presenthor-regie') : null;
@@ -54,6 +55,8 @@ const send = async (action) => {
 };
 bindClicker(client);
 window.__presenthorAction = (a) => send(a); // télécommande globale (app desktop)
+// Caméras PTZ : commandes directes (les erreurs s'affichent sous le pupitre, pas en bulle).
+bindPtz({ send: (a) => (a.type === 'ptz' ? client.send(a) : send(a)), getCue: (id) => S?.cues.find((c) => c.id === id), toast: (m) => toast(m) });
 
 // Moniteurs : seulement dans la régie principale (inutile de décoder des vidéos dans une fenêtre détachée).
 // Pré-écoute : le moniteur de sortie peut être entendu au casque (préférence Audio).
@@ -83,6 +86,7 @@ document.addEventListener('pointercancel', endDrag, true);
 const isEditing = (el) => {
   if (dragRange && el.contains(dragRange)) return true;
   if (tlDrag && el.contains(tlDrag.el)) return true;
+  if (el.querySelector('.ptz-joy.on, [data-ptz-hold].on')) return true; // caméra en mouvement
   const a = document.activeElement;
   return a && el.contains(a) && (a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['range', 'checkbox', 'color'].includes(a.type)));
 };
@@ -477,6 +481,7 @@ function clipProps() {
     h += `<span class="hint">${S.ndi?.available ? `${list.length} source(s) sur le réseau.` : 'Module NDI indisponible.'} ${desktop ? '' : 'L\'image NDI s\'affiche dans les sorties de l\'app Mac / PC.'}</span>`;
     h += check('Son de la source NDI', `${f('withAudio')} data-type="bool-true"`, c.withAudio !== false);
   }
+  if (ptzCapable(c)) h += ptzSettingsHtml(c, S.ptzNdi);
   if (c.type === 'title') {
     h += field('Texte', `<input ${f('title')} value="${esc(c.title || '')}">`) + field('Sous-texte', `<input ${f('subtitle')} value="${esc(c.subtitle || '')}">`);
     h += `<div class="row">${field('Couleur du texte', `<input type="color" ${f('textColor')} value="${esc(c.textColor || '#ffffff')}">`)}${check('Fond transparent', `${f('transparent')} data-type="bool"`, c.transparent)}</div>`;
@@ -617,7 +622,7 @@ function renderBrowser(force = false) {
   for (const b of $('#br-tabs').children) b.classList.toggle('active', b.dataset.btab === btab);
   $('#popout').title = `Ouvrir « ${PANEL_NAMES[btab] || btab} » dans une fenêtre séparée (autre écran, plein écran…)`;
   const el = $('#browser');
-  const html = { media: tabMedia, sources: tabSources, fx: tabFx, outputs: tabOutputs, public: tabPublic, live: tabLive, settings: tabSettings }[btab]();
+  const html = { media: tabMedia, sources: tabSources, fx: tabFx, outputs: tabOutputs, public: tabPublic, live: tabLive, settings: tabSettings, ptz: tabPtz }[btab]();
   patch(el, html, force && !isEditing(el));
   if (btab === 'public' || btab === 'settings') fillQr(el);
   if (btab === 'public') attachGuestPreviews();
@@ -743,6 +748,18 @@ function tabPublic() {
   return h;
 }
 
+// Onglet « PTZ » : pupitre grand format pour la caméra choisie (détachable, tablette).
+let ptzSel = null;
+function tabPtz() {
+  const cams = S.cues.filter(isPtzCue);
+  if (!cams.length) return `<p class="hint">Aucune caméra PTZ. Ajoutez une source NDI (onglet Sources) ou une caméra, puis réglez « Caméra PTZ » dans ses propriétés (NDI ou adresse IP VISCA).</p>`;
+  if (!cams.some((c) => c.id === ptzSel)) ptzSel = (cams.find((c) => c.id === selCue()?.id) || cams[0]).id;
+  const c = cams.find((x) => x.id === ptzSel);
+  const live = Object.values(S.live.comp?.active || {});
+  return `<div class="ptz-cams">${cams.map((x) => `<button class="btn sm${x.id === ptzSel ? ' primary' : ''}${live.includes(x.id) ? ' live' : ''}" data-ptz-pick="${x.id}" title="${live.includes(x.id) ? 'À l\'antenne' : ''}">${live.includes(x.id) ? '● ' : ''}${esc(x.name || x.source?.name || 'Caméra')}</button>`).join('')}</div>
+    ${ptzPadHtml(c, true)}`;
+}
+
 function tabSettings() {
   const s = S.settings;
   const conv = info.converters || [];
@@ -846,6 +863,8 @@ document.addEventListener('click', async (e) => {
   const sl = t.closest('.slides-strip [data-slide]');
   if (sl) { const c = selCue(); return c && send({ type: 'comp.slide', cueId: c.id, slide: +sl.dataset.slide }); }
 
+  const pp = t.closest('[data-ptz-pick]');
+  if (pp) { ptzSel = pp.dataset.ptzPick; return renderBrowser(true); }
   const ts = t.closest('[data-trans-sec]');
   if (ts && selLayerId) {
     const l = layerById(selLayerId);
