@@ -283,6 +283,19 @@ export class Store {
         if (patch.layers) patch.layers = sanitizeLayers(patch.layers, s.cues, cue.id);
         if (typeof patch.url === 'string') patch.url = normalizeUrl(patch.url);
         if (patch.gainDb != null) patch.gainDb = Math.max(-60, Math.min(12, +patch.gainDb || 0));
+        if (patch.speed != null) {
+          // Changement de vitesse en cours de lecture : on garde la position du clip
+          // (temps de lecture recalé), la vidéo accélère ou ralentit sans sauter.
+          const ns = Math.max(0.1, Math.min(4, +patch.speed || 1)), os = Math.max(0.1, Math.min(4, +cue.speed || 1));
+          patch.speed = ns;
+          const now = Date.now();
+          const own = Object.entries(s.live.comp?.pb || {}).filter(([lid]) => s.live.comp.active?.[lid] === cue.id).map(([, p]) => p);
+          for (const p of new Set([...own, ...(s.live.playback?.cueId === cue.id ? [s.live.playback] : [])])) {
+            if (ns === os) continue;
+            if (p.playing) p.startedAt = now - ((now - p.startedAt) * os) / ns;
+            else p.offset = ((+p.offset || 0) * os) / ns;
+          }
+        }
         Object.assign(cue, patch);
         break;
       }

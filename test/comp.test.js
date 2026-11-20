@@ -146,3 +146,14 @@ test('son en dB (0 par défaut, +12 max) et transition par calque', () => {
   s.dispatch({ type: 'comp.layer.add' });
   assert.equal(s.state.comp.layers.at(-1).gainDb, 0);
 });
+
+test('changer la vitesse en lecture garde la position du clip', () => {
+  const { s, fond } = fresh();
+  const id = s.dispatch({ type: 'comp.cell.create', layerId: fond.id, col: 0, cue: { type: 'video', mediaId: 'm2' } }).id;
+  s.dispatch({ type: 'comp.trigger', layerId: fond.id, col: 0 });
+  const p = s.state.live.comp.pb[fond.id];
+  p.startedAt = Date.now() - 10000; // 10 s de lecture à vitesse 1
+  s.dispatch({ type: 'cue.update', id, patch: { speed: 2 } });
+  const clipT = ((Date.now() - p.startedAt) / 1000) * 2;
+  assert.ok(Math.abs(clipT - 10) < 0.1, 'position conservée : ' + clipT);
+});

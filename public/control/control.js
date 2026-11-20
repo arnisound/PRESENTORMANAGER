@@ -179,8 +179,67 @@ function onState(state) {
   renderAll();
 }
 
+// ---- Affichage : taille des vignettes, grille agrandie, moniteurs (réglages propres à ce poste)
+const local = {
+  get: (k, d) => { try { const v = localStorage.getItem('presenthor.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem('presenthor.' + k, JSON.stringify(v)); } catch {} },
+};
+let cellW = local.get('cellW', null), cellFit = local.get('cellFit', false);
+function fitCellW() {
+  const area = document.querySelector('.grid-area');
+  if (!area || !S) return 132;
+  const n = S.comp.columns.length || 1, L = S.comp.layers.length || 1;
+  const byW = (area.clientWidth - 190 - 34 - 3 * (n + 2) - 14) / n;
+  const byH = ((area.clientHeight - 26 - 44 - 34 - 3 * (L + 1)) / L - 17) * 16 / 9;
+  return Math.max(70, Math.floor(Math.min(byW, byH)));
+}
+function applyCellW() {
+  const w = cellFit ? fitCellW() : cellW || S?.settings.cellSize || 132;
+  document.documentElement.style.setProperty('--cell-w', w + 'px');
+  const z = document.getElementById('cell-zoom');
+  if (z && document.activeElement !== z) z.value = w;
+  document.getElementById('cell-fit')?.classList.toggle('on', !!cellFit);
+}
+function setMonView(v) {
+  local.set('monView', v);
+  const m = document.querySelector('.monitors');
+  m.classList.toggle('v-pgm', v === 'pgm'); m.classList.toggle('v-pvw', v === 'pvw');
+  for (const b of document.querySelectorAll('[data-mv]')) b.classList.toggle('on', b.dataset.mv === v);
+}
+function setBottomH(px) {
+  const layout = document.querySelector('.layout');
+  if (px == null) layout.style.removeProperty('--bottom-h'); else layout.style.setProperty('--bottom-h', px + 'px');
+}
+{
+  setMonView(local.get('monView', 'both'));
+  document.getElementById('mon-view').addEventListener('click', (e) => { const b = e.target.closest('[data-mv]'); if (b) setMonView(b.dataset.mv); });
+  setBottomH(local.get('bottomH', null));
+  document.body.classList.toggle('grid-max', !!local.get('gridMax', false));
+  const toggleMax = () => { const on = !document.body.classList.contains('grid-max'); document.body.classList.toggle('grid-max', on); local.set('gridMax', on); setTimeout(applyCellW, 50); };
+  document.getElementById('grid-max').onclick = toggleMax;
+  const split = document.getElementById('split');
+  split.ondblclick = toggleMax;
+  split.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    split.classList.add('drag');
+    document.body.classList.remove('grid-max'); local.set('gridMax', false);
+    const layoutR = document.querySelector('.layout').getBoundingClientRect();
+    let raf = 0, last = null;
+    const move = (ev) => { last = ev; raf ||= requestAnimationFrame(() => { raf = 0; const h = Math.round(Math.max(180, Math.min(layoutR.height - 126, layoutR.bottom - last.clientY - 3))); setBottomH(h); local.set('bottomH', h); if (cellFit) applyCellW(); }); };
+    const up = () => { split.classList.remove('drag'); split.removeEventListener('pointermove', move); split.removeEventListener('pointerup', up); applyCellW(); };
+    split.addEventListener('pointermove', move);
+    split.addEventListener('pointerup', up);
+  });
+  const zoom = document.getElementById('cell-zoom');
+  zoom.addEventListener('input', () => { cellFit = false; cellW = +zoom.value; local.set('cellFit', false); local.set('cellW', cellW); applyCellW(); });
+  zoom.addEventListener('change', () => zoom.blur());
+  document.getElementById('cell-fit').onclick = () => { cellFit = !cellFit; local.set('cellFit', cellFit); applyCellW(); };
+  new ResizeObserver(() => { if (cellFit) applyCellW(); }).observe(document.querySelector('.grid-area'));
+}
+
 function renderAll() {
-  document.documentElement.style.setProperty('--cell-w', (S.settings.cellSize || 132) + 'px');
+  applyCellW();
   keepGuests();
   if (document.activeElement !== $('#show-name')) $('#show-name').value = S.show.name;
   document.title = (PANEL ? (PANEL_NAMES[PANEL] || PANEL) + ' · ' : '') + S.show.name + ' — PresenThor';
@@ -1354,7 +1413,7 @@ setInterval(() => {
     const cue = cueById(S.live.comp.active?.[layerId]);
     // Position dans la fenêtre de lecture (départ → fin) du clip.
     const dur = L?.clipLen && isFinite(L.clipLen) ? L.clipLen : vid?.duration || mediaById(cue?.mediaId)?.duration || 0;
-    let tt = L?.clipT ?? (pb.playing ? ((now - pb.startedAt) / 1000) * (cue?.speed || 1) : pb.offset);
+    let tt = L?.clipT ?? (pb.playing ? (now - pb.startedAt) / 1000 : +pb.offset || 0) * (cue?.speed || 1);
     tt = Math.max(0, dur ? Math.min(dur, tt) : tt);
     const seek = row.querySelector('[data-seek]');
     if (dur) seek.max = dur;

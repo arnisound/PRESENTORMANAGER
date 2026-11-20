@@ -38,18 +38,25 @@
   <!-- Grille calques × colonnes -->
   <section class="grid-area">
     <div class="grid" id="grid"></div>
+    <div class="grid-tools">
+      <span class="hint">Vignettes</span><input type="range" id="cell-zoom" min="90" max="420" step="2" title="Taille des vignettes">
+      <button class="btn sm" id="cell-fit" title="Vignettes à la taille de la fenêtre (toutes les colonnes visibles)">Ajuster</button>
+      <button class="btn sm" id="grid-max" title="Agrandir la grille (double-clic sur la barre de séparation)">⤢ Agrandir</button>
+    </div>
   </section>
+  <div class="split" id="split" title="Glisser pour agrandir la grille ou le bas · double-clic : agrandir / rétablir"></div>
 
   <!-- Bas : moniteurs, propriétés, navigateur -->
   <section class="bottom">
     <div class="monitors">
-      <div class="mon">
+      <div class="mon-view" id="mon-view"><button data-mv="both" title="Sortie et aperçu">PGM + Aperçu</button><button data-mv="pgm">PGM</button><button data-mv="pvw">Aperçu</button></div>
+      <div class="mon mon-pgm">
         <div class="mon-tag"><span>SORTIE</span><span id="out-info"></span></div>
-        <div id="out-mon" class="mon-stage pgm"></div>
+        <div class="mon-box"><div id="out-mon" class="mon-stage pgm"></div></div>
       </div>
-      <div class="mon">
+      <div class="mon mon-pvw">
         <div class="mon-tag"><span>APERÇU</span><span id="pvw-info"></span></div>
-        <div id="pvw-mon" class="mon-stage pvw"></div>
+        <div class="mon-box"><div id="pvw-mon" class="mon-stage pvw"></div></div>
       </div>
       <div class="transport" id="transport"></div>
     </div>

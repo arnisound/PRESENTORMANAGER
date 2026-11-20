@@ -738,7 +738,8 @@ class Layer {
     this.win = { inP, outP, len, loop };
     if (v.playbackRate !== speed) v.playbackRate = speed;
     const sig = `${pb.startedAt}|${pb.playing}|${pb.offset}|${speed}|${inP}|${cue.outPoint || 0}`;
-    let clipT = pb.playing ? ((client.now() - pb.startedAt) / 1000) * speed : pb.offset;
+    // Temps du clip = temps écoulé × vitesse (l'horloge de lecture est en secondes réelles).
+    let clipT = (pb.playing ? (client.now() - pb.startedAt) / 1000 : +pb.offset || 0) * speed;
     if (clipT < 0) {
       // Départ programmé (quelques ms) : prêt sur la première image, lancement à l'heure exacte.
       if (!v.paused) v.pause();
@@ -767,7 +768,13 @@ class Layer {
       const strict = this.stage.state?.settings?.videoSync === 'strict';
       // Un clip qui vient d'être lancé démarre à sa première image (sans sauter le début).
       const at = pb.playing && fresh && !strict && clipT < 1.5 ? inP : target;
-      if (Math.abs(v.currentTime - at) > 0.04) v.currentTime = at;
+      // Simple changement de vitesse : la position n'a pas bougé, on ne recale pas
+      // (sinon l'image saute à chaque cran du curseur).
+      let gap = v.currentTime - at;
+      if (loop && isFinite(len) && len > 0) { gap = ((gap % len) + len) % len; if (gap > len / 2) gap -= len; }
+      const speedOnly = !fresh && this.lastSpeed != null && this.lastSpeed !== speed && Math.abs(gap) < 0.5;
+      this.lastSpeed = speed;
+      if (!speedOnly && Math.abs(v.currentTime - at) > 0.04) v.currentTime = at;
       this.lastSeek = performance.now();
       if (pb.playing) this.play(v); else if (!v.paused) v.pause();
       return;
@@ -970,6 +977,7 @@ function applyClipStyle(el, cue) {
 // Rognage. « Découper » (par défaut) : les bords sont masqués, l'image reste en place
 // et à la même taille. « Remplir » : la partie gardée est agrandie pour remplir le cadre.
 function applyCrop(el, cue) {
+  el._cropCue = cue;
   const c = cue.crop || {};
   const crop = c.t || c.r || c.b || c.l;
   const fill = crop && c.mode === 'fill';
@@ -982,6 +990,13 @@ function applyCrop(el, cue) {
       let x = t.offsetLeft, y = t.offsetTop, w = t.offsetWidth, h = t.offsetHeight;
       const nw = t.videoWidth || t.naturalWidth || (t.tagName === 'CANVAS' ? t.width : 0);
       const nh = t.videoHeight || t.naturalHeight || (t.tagName === 'CANVAS' ? t.height : 0);
+      // Dimensions de l'image pas encore connues : on recalcule dès qu'elles arrivent,
+      // pour que le rognage porte sur l'image elle-même (jamais sur les bandes noires).
+      if ((t.tagName === 'VIDEO' || t.tagName === 'IMG') && !nw && !t._cropWait) {
+        t._cropWait = true;
+        const again = () => { t._cropWait = false; applyCrop(el, el._cropCue || cue); };
+        t.addEventListener(t.tagName === 'VIDEO' ? 'loadedmetadata' : 'load', again, { once: true });
+      }
       const fit = getComputedStyle(t).objectFit;
       if (nw && nh && fit === 'contain' && !t.classList.contains('slide-box')) {
         const r = Math.min(w / nw, h / nh);

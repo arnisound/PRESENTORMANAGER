@@ -24,10 +24,11 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - touches 1 à 9 pour les colonnes ;
   - glisser-déposer pour déplacer (Alt pour copier) ;
   - clic droit pour les options.
+- **Affichage de la régie** : barre de séparation à glisser entre la grille et le bas, bouton « Agrandir », taille des vignettes réglable ou « Ajuster » (toutes les colonnes visibles), moniteurs PGM + Aperçu toujours entiers, ou un seul des deux au choix. Ces réglages sont mémorisés sur chaque poste.
 - **Calques** (X vider, B masquer, S solo) : opacité, mode de fusion (normal, ajout, écran, produit, incrustation…), son en dB, transition propre au calque (fondu enchaîné, passage par le noir ou une couleur, glissement, zoom, volet, cut ; durée, courbe, fondu croisé du son), position / échelle / rotation, effets, masques (ovale, cercle, coins arrondis, losange).
 - **Clips** : présentations PowerPoint / Keynote / PDF, vidéos, images, sons, pages web / visio, caméras et cartes d'acquisition, sources NDI, textes, couleurs, QR codes, sondages, questions du public, scènes. Chaque clip a ses propres réglages :
   - fin de lecture : boucle, une fois, clip suivant, ou vider le calque ;
-  - vitesse et niveau sonore en dB (0 dB par défaut, jusqu'à +12 dB de gain pour les fichiers trop faibles) ;
+  - vitesse (modifiable en pleine lecture, sans saut d'image) et niveau sonore en dB (0 dB par défaut, jusqu'à +12 dB de gain pour les fichiers trop faibles) ;
   - cadrage, position, effets et masque.
 - **Lecture vidéo fluide** : chaque sortie se cale une seule fois (lancement, pause, déplacement), puis lit librement, comme un lecteur classique. Il n'y a aucune variation de vitesse, donc pas de son haché. La boucle est sans couture, et la plage de lecture est gérée image par image. Les écrans de contrôle lisent une version légère, une image fixe, ou rien (au choix).
 - **Audio** :
