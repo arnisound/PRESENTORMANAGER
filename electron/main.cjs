@@ -9,6 +9,15 @@ const { NativeDeck } = require('./ppt.cjs');
 
 app.setName('PresenThor');
 const ICON = path.join(__dirname, '..', 'public', 'brand', 'logo-512.png');
+// Réglages vidéo lus avant le démarrage (Préférences → Vidéo et performances).
+const bootSettings = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'data', 'show.json'), 'utf8')).settings || {}; } catch { return {}; }
+})();
+if (bootSettings.gpuAcceleration === false) app.disableHardwareAcceleration();
+if (bootSettings.gpuForce) app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+// Décodage matériel HEVC (H.265) quand la carte graphique le permet.
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');

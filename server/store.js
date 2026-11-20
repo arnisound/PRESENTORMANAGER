@@ -33,6 +33,16 @@ function defaultState() {
       defaultLoopMode: 'loop',
       defaultAutoplay: true,
       masterVolume: 1,
+      // Vidéo et performances
+      videoSync: 'smooth', // 'smooth' (lecture libre, recommandé) | 'strict' (écrans recalés de près)
+      monitorVideo: 'proxy', // écrans de contrôle : 'proxy' (vidéo légère) | 'still' (image fixe) | 'off'
+      autoOptimize: false, // réencoder automatiquement HEVC / ProRes à l'import
+      gpuAcceleration: true,
+      gpuForce: false,
+      // Audio
+      audioDevice: null, // { id, label } carte son par défaut des sorties
+      regieListen: false, // pré-écoute du moniteur de sortie dans la régie
+      regieAudioDevice: null,
       // Grille / régie
       cellSize: 132,
       confirmDelete: true,
@@ -235,6 +245,14 @@ export class Store {
     const outputActions = ['next', 'prev', 'video.ended', 'blackout.toggle', 'output.report', 'comp.ended'];
     if (role === 'audience' && !audienceActions.includes(a.type)) return { error: 'forbidden' };
     if (role === 'output' && !outputActions.includes(a.type)) return { error: 'forbidden' };
+    // Action déjà reçue par une autre voie (télécommande : liaison temps réel + secours HTTP).
+    if (a.nonce) {
+      this.nonces ||= new Map();
+      const now = Date.now();
+      for (const [k, t] of this.nonces) if (now - t > 30000) this.nonces.delete(k);
+      if (this.nonces.has(a.nonce)) return { ok: true, duplicate: true };
+      this.nonces.set(String(a.nonce).slice(0, 40), now);
+    }
     if (a.type?.startsWith('comp.')) return compDispatch(this, a);
 
     switch (a.type) {

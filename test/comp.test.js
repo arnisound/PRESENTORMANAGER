@@ -120,3 +120,14 @@ test('page web : une adresse sans https:// est corrigée', () => {
   s.dispatch({ type: 'cue.update', id, patch: { url: '  exemple.org/page ' } });
   assert.equal(s.cue(id).url, 'https://exemple.org/page');
 });
+
+test('télécommande : un appui reçu deux fois (temps réel + secours) n\'est appliqué qu\'une fois', () => {
+  const { s, contenu, cell } = fresh();
+  const deck = cell(contenu, 0, { type: 'slides', mediaId: 'm1' });
+  s.dispatch({ type: 'comp.column.trigger', col: 0 });
+  s._lastNav = 0;
+  s.dispatch({ type: 'next', nonce: 'abc' });
+  s._lastNav = 0;
+  assert.equal(s.dispatch({ type: 'next', nonce: 'abc' }).duplicate, true);
+  assert.equal(s.state.live.comp.slides[deck], 2);
+});

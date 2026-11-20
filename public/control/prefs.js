@@ -1,14 +1,23 @@
 // Préférences : tous les réglages du logiciel, rangés par thème. Chaque
 // modification est enregistrée immédiatement et s'applique à tous les écrans.
 import { esc, getPin } from '/shared/client.js';
+import { audioOutputs } from '/shared/renderer.js';
 
 const SECTIONS = [
-  ['play', 'Lecture'], ['regie', 'Régie et télécommande'], ['outputs', 'Sorties et rendu'], ['lt', 'Bandeau et habillage'],
+  ['video', 'Vidéo et performances'], ['audio', 'Audio'], ['play', 'Lecture'], ['regie', 'Régie et télécommande'], ['outputs', 'Sorties et rendu'], ['lt', 'Bandeau et habillage'],
   ['public', 'Public et présentateur'], ['timer', 'Chronomètre'], ['visio', 'Visio (invités)'], ['ndi', 'NDI'], ['api', 'Commandes à distance'], ['system', 'Système et sauvegarde'],
 ];
 
 export function openPrefs({ getState, send, info, toast }) {
-  let section = 'play';
+  let section = 'video';
+  let sinks = [];
+  const loadSinks = async (ask = false) => {
+    // Les noms des cartes son ne sont visibles qu'après une autorisation micro (navigateur).
+    if (ask) { try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((t) => t.stop()); } catch {} }
+    sinks = await audioOutputs(true);
+    render();
+  };
+  loadSinks();
   const root = document.createElement('div');
   root.className = 'modal';
   root.innerHTML = `<div class="modal-box prefs">
@@ -32,7 +41,29 @@ export function openPrefs({ getState, send, info, toast }) {
     const s = st();
     const base = location.origin;
     let h = '';
-    if (section === 'play') {
+    if (section === 'video') {
+      h = row('Lecture des vidéos', sel('videoSync', [['smooth', 'Fluide — recommandé (comme un lecteur classique)'], ['strict', 'Synchronisée de près entre plusieurs écrans']]),
+          '« Fluide » : chaque sortie se cale au lancement puis lit librement (image et son parfaits). « Synchronisée » : recalage plus fréquent, utile seulement pour un mur d\'écrans sur plusieurs ordinateurs.')
+        + row('Vidéos dans les écrans de contrôle', sel('monitorVideo', [['proxy', 'Animées (version légère)'], ['still', 'Image fixe (économise la machine)'], ['off', 'Désactivées']]),
+          'Régie, aperçu, retour présentateur, multiview. Les sorties publiques lisent toujours le fichier original.')
+        + row('Optimiser automatiquement les vidéos importées', chk('autoOptimize'), 'Les formats lourds ou mal lus (HEVC, ProRes…) sont réencodés en H.264 en arrière-plan.')
+        + row('Accélération matérielle (carte graphique)', chk('gpuAcceleration'), 'À laisser activée. Désactivez seulement en cas d\'image noire ou de plantage (redémarrage nécessaire).')
+        + row('Forcer la carte graphique', chk('gpuForce'), 'Si la vidéo reste saccadée sur un PC dont la carte graphique est ignorée par sécurité (redémarrage nécessaire).')
+        + row('Qualité de rendu des présentations', sel('renderScale', [[1, 'Standard'], [1.5, 'Haute'], [2, 'Très haute'], [3, 'Maximale']]))
+        + row('Diapositives préchargées en avance', num('preloadSlides', 0, 10))
+        + `<p class="hint">Pour un grand écran : préférez des vidéos en H.264 (bouton ⚡ dans les médias), une seule sortie avec le son, et les aperçus en « version légère » ou « image fixe ».</p>`;
+    } else if (section === 'audio') {
+      const opts = [['', 'Sortie par défaut du système'], ...sinks.filter((d) => d.deviceId !== 'default').map((d) => [d.deviceId, d.label || 'Carte son'])];
+      const sinkSel = (attr, cur) => `<select ${attr}>${opt(opts, cur?.id && sinks.some((d) => d.deviceId === cur.id) ? cur.id : sinks.find((d) => d.label === cur?.label)?.deviceId || '')}</select>`;
+      h = row('Carte son des sorties (par défaut)', sinkSel('data-sink="default"', s.audioDevice), 'Utilisée par toute sortie qui a le son, sauf si une autre carte lui est attribuée ci-dessous.')
+        + `<div class="box"><b>Son par sortie</b>${S().outputs.map((o) => `<div class="pref"><div><div class="pref-l">${esc(o.name)}</div><div class="hint">${o.audio ? 'Son activé' : 'Muette'}</div></div>
+            <div class="pref-i" style="gap:8px"><label class="switch"><input type="checkbox" data-out-audio="${o.id}"${o.audio ? ' checked' : ''}><span></span></label>${sinkSel(`data-sink="out:${o.id}"`, o.audioDevice)}</div></div>`).join('')}
+          <span class="hint">Plusieurs sorties peuvent avoir le son, chacune sur sa carte : par ex. la salle sur la console, un retour scène sur une autre carte. Le son d'un écran est celui de ses calques.</span></div>`
+        + row('Pré-écoute dans la régie', chk('regieListen'), 'Le moniteur de sortie de la régie devient audible, par ex. sur un casque.')
+        + row('Carte son de la pré-écoute', sinkSel('data-sink="regie"', s.regieAudioDevice))
+        + row('Volume général', `<span class="row"><input type="range" min="0" max="1" step="0.01" data-pref="masterVolume" value="${s.masterVolume ?? 1}" style="width:160px"><output>${Math.round((s.masterVolume ?? 1) * 100)} %</output></span>`)
+        + `<div class="row"><button class="btn sm" data-sinks-ask>Afficher le nom des cartes son</button><span class="hint">${sinks.length} sortie(s) audio détectée(s)</span></div>`;
+    } else if (section === 'play') {
       h = row('Transition des nouveaux calques', sel('defaultLayerTransitionMs', [[0, 'Cut'], [250, 'Fondu 0,25 s'], [500, 'Fondu 0,5 s'], [1000, 'Fondu 1 s'], [2000, 'Fondu 2 s']]), 'Chaque calque garde ensuite son propre réglage.')
         + row('Fin des vidéos importées', sel('defaultLoopMode', [['loop', 'Boucle'], ['once', 'Une fois (reste sur la fin)'], ['next', 'Puis clip suivant du calque'], ['clear', 'Une fois puis vider le calque']]))
         + row('Lancer les vidéos dès le déclenchement', chk('defaultAutoplay'))
@@ -103,6 +134,7 @@ export function openPrefs({ getState, send, info, toast }) {
     if (t.closest('[data-close]') || t === root) return close();
     const sec = t.closest('[data-sec]');
     if (sec) { section = sec.dataset.sec; return render(); }
+    if (t.closest('[data-sinks-ask]')) return loadSinks(true);
     if (t.dataset.copy) { navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Copié')); return; }
     if (t.dataset.regen) {
       if (!confirm('Générer un nouveau ' + (t.dataset.regen === 'apiToken' ? 'jeton ? L\'ancien ne fonctionnera plus.' : 'lien ? L\'ancien ne fonctionnera plus.'))) return;
@@ -120,6 +152,15 @@ export function openPrefs({ getState, send, info, toast }) {
       return;
     }
     if (el.dataset.compPref) return send({ type: 'comp.settings', [el.dataset.compPref]: el.checked });
+    if (el.dataset.sink) {
+      const d = sinks.find((x) => x.deviceId === el.value);
+      const dev = d ? { id: d.deviceId, label: d.label } : null;
+      const k = el.dataset.sink;
+      if (k === 'default') return save('audioDevice', dev);
+      if (k === 'regie') return save('regieAudioDevice', dev);
+      return send({ type: 'output.update', id: k.slice(4), patch: { audioDevice: dev } });
+    }
+    if (el.dataset.outAudio) { await send({ type: 'output.update', id: el.dataset.outAudio, patch: { audio: el.checked } }); return render(); }
     const k = el.dataset.pref;
     if (!k) return;
     const v = el.type === 'checkbox' ? el.checked : el.type === 'number' || el.type === 'range' || /^-?\d+(\.\d+)?$/.test(el.value) && el.tagName === 'SELECT' ? Number(el.value) : el.value;

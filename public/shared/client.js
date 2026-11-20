@@ -18,8 +18,29 @@ export class Client {
     this.seq = 0;
     this.state = null;
     this.retry = 0;
+    this.lastMsg = Date.now();
     this.connect();
-    setInterval(() => this.ping(), 5000);
+    // Surveillance de la liaison : ping toutes les 2 s ; une connexion muette depuis 6 s
+    // (Wi-Fi qui décroche, tablette qui s'est endormie) est relancée immédiatement.
+    setInterval(() => {
+      if (this.ws?.readyState === 1 && Date.now() - this.lastMsg > 6000) { try { this.ws.close(); } catch {} return; }
+      this.ping();
+    }, 2000);
+    // Retour au premier plan / réseau retrouvé : reconnexion sans attendre.
+    const wake = () => { if (document.visibilityState === 'visible') this.reconnectNow(); };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', () => this.reconnectNow());
+    window.addEventListener('pageshow', wake);
+  }
+
+  reconnectNow() {
+    if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) {
+      if (this.ws.readyState === 1 && Date.now() - this.lastMsg > 4000) { try { this.ws.close(); } catch {} }
+      else { this.ping(); return; }
+    }
+    clearTimeout(this.retryT);
+    this.retry = 0;
+    if (!this.ws || this.ws.readyState === 3) this.connect();
   }
 
   now() { return Date.now() + this.offset; }
@@ -31,17 +52,19 @@ export class Client {
     for (const [k, v] of Object.entries(this.query || {})) if (v != null) q.set(k, v);
     const pin = getPin();
     if (pin) q.set('pin', pin);
+    clearTimeout(this.retryT);
     const ws = (this.ws = new WebSocket(`${proto}://${location.host}/ws?${q}`));
-    ws.onopen = () => { this.retry = 0; this.status('online'); for (let i = 0; i < 4; i++) setTimeout(() => this.ping(), i * 300); };
-    ws.onmessage = (e) => this.receive(JSON.parse(e.data));
+    ws.onopen = () => { this.retry = 0; this.lastMsg = Date.now(); this.status('online'); for (let i = 0; i < 4; i++) setTimeout(() => this.ping(), i * 300); };
+    ws.onmessage = (e) => { this.lastMsg = Date.now(); this.receive(JSON.parse(e.data)); };
     ws.onclose = (e) => {
+      if (this.ws !== ws) return; // ancienne connexion déjà remplacée
       this.status('offline');
       if (e.code === 4003 || e.code === 4004) { this.onStatus?.(e.code === 4003 ? 'refused' : 'replaced'); return; }
       if (e.code === 4001) {
         const p = prompt('Code PIN de la régie :');
         if (p != null) setPin(p);
       }
-      setTimeout(() => this.connect(), Math.min(5000, 300 * 2 ** this.retry++));
+      this.retryT = setTimeout(() => this.connect(), Math.min(2000, 250 * 2 ** this.retry++));
     };
   }
 

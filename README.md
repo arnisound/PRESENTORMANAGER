@@ -29,6 +29,11 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - fin de lecture : boucle, une fois, clip suivant, ou vider le calque ;
   - vitesse et volume ;
   - cadrage, position, effets et masque.
+- **Lecture vidéo fluide** : chaque sortie se cale une seule fois (lancement, pause, déplacement), puis lit librement, comme un lecteur classique. Il n'y a aucune variation de vitesse, donc pas de son haché. La boucle est sans couture, et la plage de lecture est gérée image par image. Les écrans de contrôle lisent une version légère, une image fixe, ou rien (au choix).
+- **Audio** :
+  - carte son par défaut et carte son par sortie (plusieurs sorties sur des cartes différentes) ;
+  - pré-écoute au casque dans la régie ;
+  - volume général.
 - **Vidéos lourdes (4K, HEVC, ProRes…)** : à l'import, ffmpeg (fourni avec l'app) analyse la vidéo, calcule sa vignette et crée une version allégée pour les écrans de la régie. Les sorties gardent le fichier d'origine. Le bouton **⚡ Optimiser** réencode en H.264 (lisible partout, même résolution), et **⚡ 1080p** crée une version beaucoup plus légère. Le clip bascule tout seul sur la nouvelle version.
 - **Timeline des vidéos et des sons** (onglet *Clip*) :
   - point de départ et de fin, à glisser, à saisir, ou à marquer à la position actuelle ;
@@ -84,7 +89,11 @@ L'interface fonctionne comme une table de mixage vidéo : une **grille de calque
   - diapo en cours et diapo suivante ;
   - notes du présentateur en grand (taille réglable A− / A+) ;
   - chrono et messages de la régie ;
-  - boutons compacts : précédent, noir, suivant.
+  - boutons compacts : précédent, noir, suivant ;
+  - reste allumée (anti-veille, y compris sur iPad) ;
+  - se reconnecte d'elle-même ;
+  - aucun appui perdu en cas de coupure ;
+  - s'installe sur l'écran d'accueil.
 
 ## Démarrer
 

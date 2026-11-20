@@ -289,7 +289,7 @@ class Layer {
     this.el.style.opacity = 0;
     stage.layers.append(this.el);
     this.timers = [];
-    this.ready = this.build(desc).then(() => { if (desc.cue) { applyCrop(this.el, desc.cue); this.setupKey(); } }).catch((e) => {
+    this.ready = this.build(desc).then(() => { this.applyAudio(); if (desc.cue) { applyCrop(this.el, desc.cue); this.setupKey(); } }).catch((e) => {
       console.warn('Rendu impossible', desc, e);
       this.el.innerHTML = `<div class="placeholder">${esc(e.message || 'Erreur de rendu')}</div>`;
     });
@@ -330,7 +330,7 @@ class Layer {
           m.preload = 'auto';
           m.playsInline = true;
           m.loop = !!v.loop;
-          m.muted = !!monitor || !this.stage.opts.audio || v.muted;
+          m.muted = this.silent() || v.muted;
           m.volume = v.volume ?? 1;
           if (v.kind !== 'audio') {
             m.className = 'slide-video';
@@ -347,13 +347,19 @@ class Layer {
       }
       case 'video':
       case 'audio': {
+        // Écrans de contrôle : image fixe ou rien si la machine doit être économisée (préférence).
+        const mv = this.stage.state?.settings?.monitorVideo || 'proxy';
+        if (monitor && d.type === 'video' && mv !== 'proxy') {
+          el.innerHTML = mv === 'still' && d.media?.thumb ? `<img class="fit" src="/media/${esc(d.media.thumb)}" alt="">` : `<div class="placeholder">🎬 ${esc(d.cue.name)}</div>`;
+          return;
+        }
         const v = (this.video = document.createElement('video'));
         v.className = 'fit';
         // Écrans de contrôle : version allégée si elle existe (les fichiers 4K restent pour les sorties).
         v.src = monitor && d.media?.proxy ? '/media/' + d.media.proxy : d.src;
         v.preload = 'auto';
         v.playsInline = true;
-        v.muted = monitor || !this.stage.opts.audio;
+        v.muted = this.silent();
         v.loop = this.loops(d.cue);
         v.volume = this.volume(d.cue);
         if (d.type === 'audio') { el.innerHTML = `<div class="audio-badge">♪ ${esc(d.cue.name)}</div>`; v.style.display = 'none'; }
@@ -416,7 +422,7 @@ class Layer {
         const v = document.createElement('video');
         v.className = 'fit' + (d.cue.fill ? ' cover' : '');
         v.autoplay = true; v.playsInline = true;
-        v.muted = monitor || !this.stage.opts.audio || !d.cue.withAudio;
+        v.muted = this.silent() || !d.cue.withAudio;
         el.append(v);
         v.srcObject = await cameraStream(d.cue);
         await v.play().catch(() => {});
@@ -447,7 +453,7 @@ class Layer {
         if (!src) { el.innerHTML = `<div class="placeholder"><b>${esc(d.cue.sourceName || 'Aucune fenêtre choisie')}</b><small>Fenêtre introuvable (logiciel fermé ?)</small></div>`; return; }
         const v = document.createElement('video');
         v.autoplay = true; v.playsInline = true; v.className = 'fit';
-        v.muted = !!monitor || !this.stage.opts.audio || !d.cue.withAudio;
+        v.muted = this.silent() || !d.cue.withAudio;
         el.append(v);
         v.srcObject = await captureStream(src.id, !!d.cue.withAudio && !monitor && api.platform === 'win32');
         await v.play().catch(() => {});
@@ -458,7 +464,7 @@ class Layer {
         if (!this.stage.opts.client?.rtcHandlers) { el.innerHTML = `<div class="placeholder">${esc(d.cue.name || 'Invité')}</div>`; return; }
         const v = document.createElement('video');
         v.autoplay = true; v.playsInline = true; v.className = 'fit' + (d.cue.fill ? ' cover' : '');
-        v.muted = !!monitor || !this.stage.opts.audio;
+        v.muted = this.silent();
         v.volume = this.volume(d.cue);
         el.append(v);
         v.srcObject = await guestStream(this.stage.opts.client, () => this.stage.state, d.cue.guestId);
@@ -551,6 +557,21 @@ class Layer {
     const v = this.video;
     if (!v || this.destroyed) return;
     const cue = this.desc.cue;
+    const w = this.win;
+    if (w && this.stage.opts.compLayer) {
+      this.clipT = Math.max(0, v.currentTime - w.inP); this.clipLen = w.len;
+      // Point de fin atteint : boucle (retour au départ) ou arrêt sur la dernière image.
+      if (isFinite(w.outP) && !v.paused && v.currentTime >= w.outP - 0.03 && (cue.outPoint > 0 || !w.loop)) {
+        if (w.loop) { v.currentTime = w.inP; this.lastSeek = performance.now(); }
+        else {
+          v.pause();
+          this.ended = true;
+          const pf = this.stage.opts.playbackFor;
+          const pb = pf?.(cue.id);
+          if (pb) this.reportEnd(pb, w.len);
+        }
+      }
+    }
     const fi = +cue.fadeIn || 0, fo = +cue.fadeOut || 0;
     let f = 1;
     if ((fi || fo) && this.stage.opts.compLayer) {
@@ -598,6 +619,7 @@ class Layer {
     if (this.webview) { try { this.webview.setZoomFactor(desc.cue.zoom || 1); this.webview.setAudioMuted(!!this.stage.opts.monitor || !this.stage.opts.audio); } catch {} }
     if (this.stage.opts.clipStyle && desc.cue) applyClipStyle(this.el, desc.cue);
     if (this.built && desc.cue) this.setupKey();
+    if (this.built) this.applyAudio();
     if (desc.type === 'scene' && this.children) this.syncScene(desc, state);
     if (this.video) {
       this.video.loop = this.loops(desc.cue);
@@ -605,6 +627,19 @@ class Layer {
       this.syncMedia();
       if (!this.syncTimer) this.syncTimer = setInterval(() => this.syncMedia(), 250);
     }
+  }
+
+  // Son coupé ? (sortie sans son, ou écran de contrôle sans pré-écoute)
+  silent() { const o = this.stage.opts; return !o.audio || (!!o.monitor && !o.listen?.()); }
+
+  // Son : muet / audible selon la sortie, et carte son choisie dans les préférences.
+  applyAudio() {
+    const els = [this.video, ...(this.slideMedia || []), ...this.el.querySelectorAll('.layer-camera video, .layer-guest video, .layer-window video')].filter(Boolean);
+    if (!els.length) return;
+    const silent = this.silent();
+    if (this.video && this.video.muted !== silent) this.video.muted = silent;
+    const sink = this.stage.opts.sink?.();
+    if (sink && !silent) resolveSink(sink).then((id) => { for (const m of els) if (m.setSinkId && m.sinkId !== id && id != null) m.setSinkId(id).catch(() => {}); });
   }
 
   // Dans la composition, les clips bouclent par défaut (comme en VJ) ; ailleurs, réglage "boucle".
@@ -649,48 +684,67 @@ class Layer {
     const inP = Math.max(0, Math.min(+cue.inPoint || 0, isFinite(dur) ? dur - 0.05 : Infinity));
     const outP = cue.outPoint > inP ? Math.min(+cue.outPoint, dur) : dur;
     const len = outP - inP;
+    const loop = this.wantsLoop(cue);
+    this.win = { inP, outP, len, loop };
+    if (v.playbackRate !== speed) v.playbackRate = speed;
+    const sig = `${pb.startedAt}|${pb.playing}|${pb.offset}|${speed}|${inP}|${cue.outPoint || 0}`;
     let clipT = pb.playing ? ((client.now() - pb.startedAt) / 1000) * speed : pb.offset;
-    if (clipT < 0) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - inP) > 0.05) v.currentTime = inP; return; }
-    let wrapped = false;
-    if (this.wantsLoop(cue) && isFinite(len) && len > 0) {
-      const lap = Math.floor(clipT / len);
-      wrapped = this.lap != null && lap !== this.lap;
-      this.lap = lap;
-      clipT -= lap * len;
-    } else if (isFinite(len) && clipT >= len) {
-      // Fin de la fenêtre : arrêt sur la dernière image, et fin signalée (clip suivant, etc.).
+    if (clipT < 0) {
+      // Départ programmé (quelques ms) : prêt sur la première image, lancement à l'heure exacte.
       if (!v.paused) v.pause();
-      if (Math.abs(v.currentTime - outP) > 0.1) v.currentTime = Math.max(inP, outP - 0.04);
-      const key = cue.id + ':' + pb.startedAt;
-      if (this.stage.opts.reportEnded && this.endedKey !== key && pb.playing) {
-        this.endedKey = key;
-        const layerId = this.stage.opts.compLayer;
-        if (layerId) this.stage.opts.client?.send({ type: 'comp.ended', layerId, cueId: cue.id, duration: len });
-      }
+      if (Math.abs(v.currentTime - inP) > 0.05) v.currentTime = inP;
+      clearTimeout(this.startT);
+      this.startT = setTimeout(() => this.syncMedia(), Math.max(0, -clipT * 1000 / speed));
+      return;
+    }
+    if (loop && isFinite(len) && len > 0) clipT %= len;
+    else if (isFinite(len) && clipT >= len && sig !== this.pbSig) {
+      // Écran ouvert après la fin du clip : on reste sur la dernière image.
+      this.pbSig = sig;
+      if (!v.paused) v.pause();
+      v.currentTime = Math.max(inP, outP - 0.04);
+      this.reportEnd(pb, len);
       return;
     }
     const target = inP + clipT;
-    this.clipT = clipT; this.clipLen = len;
-    const drift = v.currentTime - target;
-    if (wrapped) { v.currentTime = target; this.lastSeek = performance.now(); }
-    if (pb.playing) {
-      // Recalage doux : un « saut » seulement si l'écart est grand (et pas plus d'une fois
-      // toutes les 3 s) ; sinon légère accélération / ralentissement. Les écrans de
-      // contrôle tolèrent plus d'écart pour ne pas charger la machine.
-      const mon = this.stage.opts.monitor;
-      const now = performance.now();
-      if (Math.abs(drift) > (mon ? 2.5 : 1) && (!this.lastSeek || now - this.lastSeek > 3000)) { v.currentTime = target; this.lastSeek = now; }
-      else if (!mon) v.playbackRate = speed * (Math.abs(drift) > 0.15 ? (drift > 0 ? 0.98 : 1.02) : 1);
-      else v.playbackRate = speed;
-      if (v.paused) {
-        v.play().catch((e) => {
-          if (e.name === 'NotAllowedError' && !v.muted) { v.muted = true; v.play().catch(() => {}); this.stage.opts.onAutoplayBlocked?.(() => { v.muted = false; }); }
-        });
-      }
-    } else {
-      if (!v.paused) v.pause();
-      if (Math.abs(drift) > 0.05) v.currentTime = target;
+    const mon = this.stage.opts.monitor;
+    if (sig !== this.pbSig) {
+      // Nouvel ordre (départ, pause, déplacement) : on se cale UNE fois, puis la vidéo
+      // joue librement, comme dans un lecteur classique (aucune variation de vitesse).
+      const fresh = this.pbSig === undefined || this.pbSig === null;
+      this.pbSig = sig;
+      this.ended = false;
+      const strict = this.stage.state?.settings?.videoSync === 'strict';
+      // Un clip qui vient d'être lancé démarre à sa première image (sans sauter le début).
+      const at = pb.playing && fresh && !strict && clipT < 1.5 ? inP : target;
+      if (Math.abs(v.currentTime - at) > 0.04) v.currentTime = at;
+      this.lastSeek = performance.now();
+      if (pb.playing) this.play(v); else if (!v.paused) v.pause();
+      return;
     }
+    if (!pb.playing) { if (!v.paused) v.pause(); return; }
+    if (v.paused && !this.ended) this.play(v);
+    // Correction seulement en cas de vraie dérive (machine qui a calé, mise en veille…).
+    const strict = this.stage.state?.settings?.videoSync === 'strict';
+    const tol = mon ? 6 : strict ? 0.5 : 4;
+    let drift = v.currentTime - target;
+    if (loop && isFinite(len) && len > 0) { drift = ((drift % len) + len) % len; if (drift > len / 2) drift -= len; }
+    const now = performance.now();
+    if (Math.abs(drift) > tol && now - (this.lastSeek || 0) > 6000) { v.currentTime = target; this.lastSeek = now; }
+  }
+
+  play(v) {
+    v.play().catch((e) => {
+      if (e.name === 'NotAllowedError' && !v.muted) { v.muted = true; v.play().catch(() => {}); this.stage.opts.onAutoplayBlocked?.(() => { v.muted = false; }); }
+    });
+  }
+
+  reportEnd(pb, len) {
+    const key = this.desc.cue.id + ':' + pb.startedAt;
+    if (!this.stage.opts.reportEnded || this.endedKey === key || !pb.playing) return;
+    this.endedKey = key;
+    const layerId = this.stage.opts.compLayer;
+    if (layerId) this.stage.opts.client?.send({ type: 'comp.ended', layerId, cueId: this.desc.cue.id, duration: len });
   }
 
   renderCard(d, state) {
@@ -748,6 +802,7 @@ class Layer {
 
   destroy() {
     this.destroyed = true;
+    clearTimeout(this.startT);
     this.keyer?.stop();
     clearInterval(this.syncTimer);
     clearInterval(this.slideTimer);
@@ -976,4 +1031,22 @@ class Keyer {
     this.canvas.remove();
     this.src.classList.remove('key-src');
   }
+}
+
+// ---------------------------------------------------------------- cartes son
+// Une carte son est mémorisée par identifiant ET nom (l'identifiant peut changer d'un
+// démarrage à l'autre) ; '' = sortie par défaut du système.
+let sinkList = null;
+export async function audioOutputs(refresh = false) {
+  if (!sinkList || refresh) {
+    try { sinkList = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput'); } catch { sinkList = []; }
+    setTimeout(() => { sinkList = null; }, 10000);
+  }
+  return sinkList;
+}
+async function resolveSink(sink) {
+  if (!sink || (!sink.id && !sink.label)) return '';
+  const list = await audioOutputs();
+  const d = list.find((x) => x.deviceId === sink.id) || list.find((x) => sink.label && x.label === sink.label);
+  return d ? d.deviceId : '';
 }

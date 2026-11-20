@@ -76,18 +76,22 @@ export async function prepareVideo(media, filePath, mediaDir, onUpdate) {
     media.thumb = thumb;
     onUpdate();
   } catch { /* pas de vignette : la régie affichera une icône */ }
-  // Proxy pour les écrans de contrôle si la vidéo est lourde ou dans un format délicat.
-  if (media.heavy || media.needsOptimize) {
-    try {
-      const proxy = base + '_proxy.mp4';
-      media.proxyStatus = 'en cours';
-      onUpdate();
-      await run(['-y', '-i', filePath, '-vf', 'scale=-2:360', '-r', '25', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', path.join(mediaDir, proxy)]);
-      media.proxy = proxy;
-      media.proxyStatus = null;
-    } catch { media.proxyStatus = null; }
+  await makeProxy(media, filePath, mediaDir, onUpdate);
+}
+
+// Version légère (360p) lue par les écrans de contrôle : la machine ne décode le
+// fichier original que pour les vraies sorties.
+export async function makeProxy(media, filePath, mediaDir, onUpdate) {
+  if (!ffmpeg() || media.proxy || (media.width && media.width <= 700 && !media.needsOptimize)) return;
+  try {
+    const proxy = media.id + '_proxy.mp4';
+    media.proxyStatus = 'en cours';
     onUpdate();
-  }
+    await run(['-y', '-i', filePath, '-vf', 'scale=-2:360', '-r', '25', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', path.join(mediaDir, proxy)]);
+    media.proxy = proxy;
+  } catch { /* sans proxy, les écrans de contrôle liront l'original */ }
+  media.proxyStatus = null;
+  onUpdate();
 }
 
 // Réencodage complet (H.264, résolution conservée jusqu'à la 4K) : lecture fluide et fiable.

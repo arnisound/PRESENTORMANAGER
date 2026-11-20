@@ -49,7 +49,9 @@ function render(state) {
 }
 
 function baseOpts(out) {
-  return { client, audio: !!out.audio && !previewMode, monitor: previewMode, onAutoplayBlocked };
+  // Carte son : celle de la sortie, sinon celle par défaut des préférences.
+  const sink = () => { const st = client.state; const o = st?.outputs.find((x) => x.id === outputId); return o?.audioDevice?.label || o?.audioDevice?.id ? o.audioDevice : st?.settings.audioDevice; };
+  return { client, audio: !!out.audio && !previewMode, monitor: previewMode, onAutoplayBlocked, sink };
 }
 
 // Contenu d'une source "écran" : composition (programme), composition sans habillage,

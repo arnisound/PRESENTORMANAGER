@@ -56,7 +56,9 @@ bindClicker(client);
 window.__presenthorAction = (a) => send(a); // télécommande globale (app desktop)
 
 // Moniteurs : seulement dans la régie principale (inutile de décoder des vidéos dans une fenêtre détachée).
-const outMon = PANEL ? null : new CompositionView($('#out-mon'), { client, monitor: true, overlays: true, reportEnded: true });
+// Pré-écoute : le moniteur de sortie peut être entendu au casque (préférence Audio).
+const outMon = PANEL ? null : new CompositionView($('#out-mon'), { client, monitor: true, overlays: true, reportEnded: true,
+  audio: true, listen: () => !!S?.settings.regieListen, sink: () => S?.settings.regieAudioDevice });
 const pvwMon = PANEL ? null : new Stage($('#pvw-mon'), { client, monitor: true, clipStyle: true, free: true });
 
 fetch('/api/info').then((r) => r.json()).then((i) => { info = i; renderBrowser(true); });
@@ -1299,7 +1301,7 @@ setInterval(() => {
     const vid = L?.video;
     const cue = cueById(S.live.comp.active?.[layerId]);
     // Position dans la fenêtre de lecture (départ → fin) du clip.
-    const dur = L?.clipLen && isFinite(L.clipLen) ? L.clipLen : vid?.duration || 0;
+    const dur = L?.clipLen && isFinite(L.clipLen) ? L.clipLen : vid?.duration || mediaById(cue?.mediaId)?.duration || 0;
     let tt = L?.clipT ?? (pb.playing ? ((now - pb.startedAt) / 1000) * (cue?.speed || 1) : pb.offset);
     tt = Math.max(0, dur ? Math.min(dur, tt) : tt);
     const seek = row.querySelector('[data-seek]');

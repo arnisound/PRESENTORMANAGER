@@ -12,7 +12,7 @@ import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
 import { Store, uid, pollResults } from './store.js';
 import { processMedia, kindOf, officeConverters, queueVideo, pptxNotes, pptxMedia } from './media.js';
-import { prepareVideo, optimizeVideo, ffmpeg, probeFull } from './video.js';
+import { prepareVideo, optimizeVideo, ffmpeg, probeFull, makeProxy } from './video.js';
 import { startNdiDiscovery } from './ndi.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,6 +35,7 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
   for (const m of store.state.media) {
     if (m.optimize) m.optimize = null;
     if (m.kind === 'video' && !m.thumb && ffmpeg()) queueVideo(() => prepareVideo(m, path.join(mediaDirPath, m.file), mediaDirPath, () => store.emit()));
+    else if (m.kind === 'video' && !m.proxy && ffmpeg()) queueVideo(() => makeProxy(m, path.join(mediaDirPath, m.original || m.file), mediaDirPath, () => store.emit()));
     // PowerPoint importés avant la correction des diapos masquées : notes et vidéos réanalysées.
     if (m.kind === 'slides' && m.source && /\.(pptx|ppsx)$/i.test(m.source) && (m.pptxV || 0) < 2) {
       try {
@@ -103,7 +104,14 @@ export async function startServer({ port = 4517, host = '0.0.0.0', dataDir = pat
         const media = { id: f.mediaId, name: f.originalname, file: f.filename, size: f.size, kind: kindOf(f.originalname), status: 'processing', addedAt: Date.now() };
         store.state.media.push(media);
         created.push(media);
-        processMedia(media, f.path, mediaDir, () => store.emit());
+        processMedia(media, f.path, mediaDir, () => {
+          // Préférence : réencoder automatiquement les formats délicats (HEVC, ProRes…).
+          if (media.needsOptimize && store.state.settings.autoOptimize && !media._autoOpt && !media.optimize) {
+            media._autoOpt = true;
+            optimizeVideo(media, mediaDir, () => store.emit());
+          }
+          store.emit();
+        });
       }
       // Fichiers déposés sur une case de la grille : clips créés à partir de cette case
       // (cases libres suivantes du même calque pour un dépôt multiple).
